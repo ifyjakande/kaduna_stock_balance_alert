@@ -35,11 +35,19 @@ def get_sheet_data(service):
     ).execute()
     return result.get('values', [])
 
-def send_space_alert(webhook_url, changes):
+def send_space_alert(webhook_url, changes=None, initial_state=None):
     """Send alert to Google Space."""
-    message = "🔔 *Stock Balance Changes Detected*\n\n"
-    for spec, old_val, new_val in changes:
-        message += f"• {spec}: {old_val} → {new_val}\n"
+    if initial_state:
+        message = "📊 *Initial Stock Balance State*\n\n"
+        if len(initial_state) >= 2:  # Ensure we have headers and data
+            headers = initial_state[0]
+            values = initial_state[1]
+            for i in range(len(headers)):
+                message += f"• {headers[i]}: {values[i]}\n"
+    else:
+        message = "🔔 *Stock Balance Changes Detected*\n\n"
+        for spec, old_val, new_val in changes:
+            message += f"• {spec}: {old_val} → {new_val}\n"
     
     message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_"
     
@@ -94,18 +102,24 @@ def main():
     # Load previous state
     previous_data = load_previous_state()
     
-    # Detect changes
-    changes = detect_changes(previous_data, current_data)
-    
-    # If changes detected, send alert
-    if changes:
-        success = send_space_alert(webhook_url, changes)
+    if not previous_data:
+        # First run - send initial state alert
+        success = send_space_alert(webhook_url, initial_state=current_data)
         if success:
-            print("Alert sent successfully")
+            print("Initial state alert sent successfully")
         else:
-            print("Failed to send alert")
+            print("Failed to send initial state alert")
     else:
-        print("No changes detected")
+        # Check for changes
+        changes = detect_changes(previous_data, current_data)
+        if changes:
+            success = send_space_alert(webhook_url, changes=changes)
+            if success:
+                print("Alert sent successfully")
+            else:
+                print("Failed to send alert")
+        else:
+            print("No changes detected")
     
     # Save current state
     save_current_state(current_data)
