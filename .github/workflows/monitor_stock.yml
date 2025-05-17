@@ -30,7 +30,7 @@ jobs:
     
     - name: Create service account file
       run: |
-        echo "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" > service-account.json
+        echo '${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}' > service-account.json
     
     - name: Run monitoring script
       env:
