@@ -20,6 +20,11 @@ DATA_DIR = os.path.join(os.getenv('GITHUB_WORKSPACE', os.getcwd()), '.data')
 os.makedirs(DATA_DIR, exist_ok=True)
 PREVIOUS_STATE_FILE = os.path.join(DATA_DIR, 'previous_state.pickle')
 
+# Delete previous state file if it exists
+if os.path.exists(PREVIOUS_STATE_FILE):
+    print(f"Deleting existing state file: {PREVIOUS_STATE_FILE}")
+    os.remove(PREVIOUS_STATE_FILE)
+
 def get_service():
     """Create and return Google Sheets service object."""
     credentials = service_account.Credentials.from_service_account_file(

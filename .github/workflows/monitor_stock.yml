@@ -17,12 +17,6 @@ jobs:
       with:
         python-version: '3.x'
     
-    - name: Cache state data
-      uses: actions/cache@v3
-      with:
-        path: .data
-        key: ${{ runner.os }}-stock-state
-    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
