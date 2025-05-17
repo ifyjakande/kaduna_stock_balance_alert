@@ -7,11 +7,18 @@ import requests
 from datetime import datetime
 
 # Constants
-SPREADSHEET_ID = '1sSHPrWZ1e6OnpImdzIGbaSSKaRFavw0wN622QnBbYwM'
+SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID')
+if not SPREADSHEET_ID:
+    raise ValueError("SPREADSHEET_ID environment variable not set")
+    
 SHEET_NAME = 'balance'
 RANGE = 'A1:O3'  # Adjust range to cover all your data
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-PREVIOUS_STATE_FILE = 'previous_state.pickle'
+
+# Set up data directory for state persistence
+DATA_DIR = os.path.join(os.getenv('GITHUB_WORKSPACE', os.getcwd()), '.data')
+os.makedirs(DATA_DIR, exist_ok=True)
+PREVIOUS_STATE_FILE = os.path.join(DATA_DIR, 'previous_state.pickle')
 
 def get_service():
     """Create and return Google Sheets service object."""
