@@ -25,9 +25,12 @@ jobs:
     - name: Create service account file
       run: |
         echo '${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}' > service-account.json
+      env:
+        ACTIONS_STEP_DEBUG: false
     
     - name: Run monitoring script
       env:
         SPACE_WEBHOOK_URL: ${{ secrets.SPACE_WEBHOOK_URL }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        ACTIONS_STEP_DEBUG: false
       run: python monitor_stock.py 

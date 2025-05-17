@@ -6,6 +6,14 @@ from googleapiclient.discovery import build
 import requests
 from datetime import datetime
 
+def mask_sensitive_data(data):
+    """Mask sensitive data for logging."""
+    if isinstance(data, list):
+        return "[...]"
+    if isinstance(data, str) and len(data) > 20:
+        return f"{data[:3]}...{data[-3:]}"
+    return data
+
 # Constants
 SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID')
 if not SPREADSHEET_ID:
@@ -22,7 +30,7 @@ PREVIOUS_STATE_FILE = os.path.join(DATA_DIR, 'previous_state.pickle')
 
 # Delete previous state file if it exists
 if os.path.exists(PREVIOUS_STATE_FILE):
-    print(f"Deleting existing state file: {PREVIOUS_STATE_FILE}")
+    print("Deleting existing state file")
     os.remove(PREVIOUS_STATE_FILE)
 
 def get_service():
@@ -40,14 +48,14 @@ def get_sheet_data(service):
         range=f'{SHEET_NAME}!{RANGE}'
     ).execute()
     data = result.get('values', [])
-    print(f"Fetched data: {data}")
+    print("Data fetched successfully")
     return data
 
 def send_space_alert(webhook_url, changes=None, initial_state=None):
     """Send alert to Google Space."""
     if initial_state:
         message = "📊 *Initial Stock Balance State*\n\n"
-        print(f"Preparing initial state message with data: {initial_state}")
+        print("Preparing initial state message")
         if len(initial_state) >= 2:  # Ensure we have headers and data
             headers = initial_state[0]
             values = initial_state[1]
@@ -55,7 +63,7 @@ def send_space_alert(webhook_url, changes=None, initial_state=None):
                 message += f"• {headers[i]}: {values[i]}\n"
     else:
         message = "🔔 *Stock Balance Changes Detected*\n\n"
-        print(f"Preparing changes message with changes: {changes}")
+        print("Preparing changes message")
         for spec, old_val, new_val in changes:
             message += f"• {spec}: {old_val} → {new_val}\n"
     
@@ -65,29 +73,26 @@ def send_space_alert(webhook_url, changes=None, initial_state=None):
         "text": message
     }
     
-    print(f"Sending webhook request to: {webhook_url[:20]}...")
-    print(f"Payload: {payload}")
+    print("Sending webhook request...")
     response = requests.post(webhook_url, json=payload)
     print(f"Webhook response status: {response.status_code}")
-    print(f"Webhook response text: {response.text}")
     return response.status_code == 200
 
 def load_previous_state():
     """Load previous state from file."""
-    print(f"Looking for previous state file at: {PREVIOUS_STATE_FILE}")
+    print("Checking for previous state file")
     if os.path.exists(PREVIOUS_STATE_FILE):
-        print("Previous state file found, loading...")
+        print("Loading previous state")
         with open(PREVIOUS_STATE_FILE, 'rb') as f:
             data = pickle.load(f)
-            print(f"Loaded previous state: {data}")
+            print("Previous state loaded")
             return data
-    print("No previous state file found")
+    print("No previous state found")
     return None
 
 def save_current_state(state):
     """Save current state to file."""
-    print(f"Saving current state to: {PREVIOUS_STATE_FILE}")
-    print(f"State to save: {state}")
+    print("Saving current state")
     with open(PREVIOUS_STATE_FILE, 'wb') as f:
         pickle.dump(state, f)
     print("State saved successfully")
@@ -108,7 +113,10 @@ def detect_changes(previous_data, current_data):
         if prev_row[i] != curr_row[i]:
             changes.append((headers[i], prev_row[i], curr_row[i]))
     
-    print(f"Detected changes: {changes}")
+    if changes:
+        print(f"Detected {len(changes)} changes")
+    else:
+        print("No changes detected")
     return changes
 
 def main():
@@ -116,7 +124,7 @@ def main():
     webhook_url = os.environ.get('SPACE_WEBHOOK_URL')
     if not webhook_url:
         raise ValueError("SPACE_WEBHOOK_URL environment variable not set")
-    print(f"Using webhook URL: {webhook_url[:20]}...")
+    print("Webhook URL configured")
 
     # Initialize the Sheets API service
     print("Initializing Google Sheets service...")
@@ -130,7 +138,7 @@ def main():
     
     if not previous_data:
         # First run - send initial state alert
-        print("No previous state found, sending initial state alert...")
+        print("Sending initial state alert...")
         success = send_space_alert(webhook_url, initial_state=current_data)
         if success:
             print("Initial state alert sent successfully")
