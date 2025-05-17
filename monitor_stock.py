@@ -110,8 +110,6 @@ def detect_changes(previous_data, current_data):
     
     if changes:
         print(f"Detected {len(changes)} changes")
-    else:
-        print("No changes detected")
     return changes
 
 def main():
