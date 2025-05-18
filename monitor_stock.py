@@ -3,6 +3,7 @@ import json
 import pickle
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import requests
 from datetime import datetime
 
@@ -28,69 +29,112 @@ DATA_DIR = os.path.join(os.getenv('GITHUB_WORKSPACE', os.getcwd()), '.data')
 os.makedirs(DATA_DIR, exist_ok=True)
 PREVIOUS_STATE_FILE = os.path.join(DATA_DIR, 'previous_state.pickle')
 
+class APIError(Exception):
+    """Custom exception for API related errors."""
+    pass
+
 def get_service():
     """Create and return Google Sheets service object."""
-    credentials = service_account.Credentials.from_service_account_file(
-        'service-account.json', scopes=SCOPES)
-    return build('sheets', 'v4', credentials=credentials)
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            'service-account.json', scopes=SCOPES)
+        return build('sheets', 'v4', credentials=credentials)
+    except Exception as e:
+        print(f"Error initializing Google Sheets service: {str(e)}")
+        raise APIError("Failed to initialize Google Sheets service")
 
 def get_sheet_data(service):
     """Fetch data from Google Sheet."""
     print("Fetching data from sheet...")
-    sheet = service.spreadsheets()
-    result = sheet.values().get(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f'{SHEET_NAME}!{RANGE}'
-    ).execute()
-    data = result.get('values', [])
-    print("Data fetched successfully")
-    return data
+    try:
+        sheet = service.spreadsheets()
+        result = sheet.values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f'{SHEET_NAME}!{RANGE}'
+        ).execute()
+        data = result.get('values', [])
+        
+        # Validate data structure
+        if not data or len(data) < 2:
+            raise APIError("Invalid data structure received from Google Sheets")
+        
+        if len(data[0]) != len(data[1]):  # Check if headers and values match
+            raise APIError("Mismatch between headers and values in sheet data")
+            
+        print("Data fetched successfully")
+        return data
+    except HttpError as e:
+        print(f"Google Sheets API error: {str(e)}")
+        raise APIError("Failed to fetch data from Google Sheets")
+    except Exception as e:
+        print(f"Unexpected error fetching sheet data: {str(e)}")
+        raise APIError("Unexpected error while fetching sheet data")
 
 def send_space_alert(webhook_url, changes=None, initial_state=None):
     """Send alert to Google Space."""
-    if initial_state:
-        message = "📊 *Initial Stock Balance State*\n\n"
-        print("Preparing initial state message")
-        if len(initial_state) >= 2:  # Ensure we have headers and data
-            headers = initial_state[0]
-            values = initial_state[1]
-            for i in range(len(headers)):
-                message += f"• {headers[i]}: {values[i]}\n"
-    else:
-        message = "🔔 *Stock Balance Changes Detected*\n\n"
-        print("Preparing changes message")
-        for spec, old_val, new_val in changes:
-            message += f"• {spec}: {old_val} → {new_val}\n"
-    
-    message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}_"
-    
-    payload = {
-        "text": message
-    }
-    
-    print("Sending webhook request...")
-    response = requests.post(webhook_url, json=payload)
-    print(f"Webhook response status: {response.status_code}")
-    return response.status_code == 200
+    try:
+        if initial_state:
+            message = "📊 *Initial Stock Balance State*\n\n"
+            print("Preparing initial state message")
+            if len(initial_state) >= 2:  # Ensure we have headers and data
+                headers = initial_state[0]
+                values = initial_state[1]
+                for i in range(len(headers)):
+                    message += f"• {headers[i]}: {values[i]}\n"
+        else:
+            message = "🔔 *Stock Balance Changes Detected*\n\n"
+            print("Preparing changes message")
+            for spec, old_val, new_val in changes:
+                message += f"• {spec}: {old_val} → {new_val}\n"
+        
+        message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}_"
+        
+        payload = {
+            "text": message
+        }
+        
+        print("Sending webhook request...")
+        response = requests.post(webhook_url, json=payload, timeout=10)  # Add timeout
+        response.raise_for_status()  # Raise exception for bad status codes
+        print(f"Webhook response status: {response.status_code}")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending alert to Google Space: {str(e)}")
+        return False
 
 def load_previous_state():
     """Load previous state from file."""
     print("Checking for previous state file")
-    if os.path.exists(PREVIOUS_STATE_FILE):
-        print("Loading previous state")
-        with open(PREVIOUS_STATE_FILE, 'rb') as f:
-            data = pickle.load(f)
-            print("Previous state loaded")
-            return data
-    print("No previous state found")
-    return None
+    try:
+        if os.path.exists(PREVIOUS_STATE_FILE):
+            print("Loading previous state")
+            with open(PREVIOUS_STATE_FILE, 'rb') as f:
+                data = pickle.load(f)
+                if not data or len(data) < 2:
+                    print("Invalid state data found, treating as no previous state")
+                    return None
+                print("Previous state loaded")
+                return data
+        print("No previous state found")
+        return None
+    except Exception as e:
+        print(f"Error loading previous state: {str(e)}")
+        return None
 
 def save_current_state(state):
     """Save current state to file."""
+    if not state or len(state) < 2:
+        print("Invalid state data, skipping save")
+        return
+        
     print("Saving current state")
-    with open(PREVIOUS_STATE_FILE, 'wb') as f:
-        pickle.dump(state, f)
-    print("State saved successfully")
+    try:
+        with open(PREVIOUS_STATE_FILE, 'wb') as f:
+            pickle.dump(state, f)
+        print("State saved successfully")
+    except Exception as e:
+        print(f"Error saving state: {str(e)}")
+        raise APIError("Failed to save state file")
 
 def detect_changes(previous_data, current_data):
     """Detect changes between previous and current data."""
@@ -98,60 +142,73 @@ def detect_changes(previous_data, current_data):
         print("No previous data available")
         return []
     
-    changes = []
-    # Skip header row and compare the balance row
-    prev_row = previous_data[1]
-    curr_row = current_data[1]
-    headers = current_data[0]
-    
-    for i in range(len(prev_row)):
-        if prev_row[i] != curr_row[i]:
-            changes.append((headers[i], prev_row[i], curr_row[i]))
-    
-    if changes:
-        print(f"Detected {len(changes)} changes")
-    return changes
+    try:
+        changes = []
+        # Skip header row and compare the balance row
+        prev_row = previous_data[1]
+        curr_row = current_data[1]
+        headers = current_data[0]
+        
+        # Validate data lengths
+        if len(prev_row) != len(curr_row) or len(headers) != len(curr_row):
+            raise APIError("Data structure mismatch while comparing states")
+        
+        for i in range(len(prev_row)):
+            if prev_row[i] != curr_row[i]:
+                changes.append((headers[i], prev_row[i], curr_row[i]))
+        
+        if changes:
+            print(f"Detected {len(changes)} changes")
+        return changes
+    except Exception as e:
+        print(f"Error detecting changes: {str(e)}")
+        raise APIError("Failed to compare states")
 
 def main():
-    # Get webhook URL from environment variable
-    webhook_url = os.environ.get('SPACE_WEBHOOK_URL')
-    if not webhook_url:
-        raise ValueError("SPACE_WEBHOOK_URL environment variable not set")
-    print("Webhook URL configured")
+    try:
+        # Get webhook URL from environment variable
+        webhook_url = os.environ.get('SPACE_WEBHOOK_URL')
+        if not webhook_url:
+            raise ValueError("SPACE_WEBHOOK_URL environment variable not set")
+        print("Webhook URL configured")
 
-    # Initialize the Sheets API service
-    print("Initializing Google Sheets service...")
-    service = get_service()
-    
-    # Get current sheet data
-    current_data = get_sheet_data(service)
-    
-    # Load previous state
-    previous_data = load_previous_state()
-    
-    if not previous_data:
-        # First run - send initial state alert
-        print("Sending initial state alert...")
-        success = send_space_alert(webhook_url, initial_state=current_data)
-        if success:
-            print("Initial state alert sent successfully")
-        else:
-            print("Failed to send initial state alert")
-    else:
-        # Check for changes
-        print("Checking for changes...")
-        changes = detect_changes(previous_data, current_data)
-        if changes:
-            success = send_space_alert(webhook_url, changes=changes)
-            if success:
-                print("Alert sent successfully")
+        # Initialize the Sheets API service
+        print("Initializing Google Sheets service...")
+        service = get_service()
+        
+        # Get current sheet data
+        current_data = get_sheet_data(service)
+        
+        # Load previous state
+        previous_data = load_previous_state()
+        
+        if not previous_data:
+            # First run - send initial state alert
+            print("Sending initial state alert...")
+            if send_space_alert(webhook_url, initial_state=current_data):
+                save_current_state(current_data)
             else:
-                print("Failed to send alert")
+                raise APIError("Failed to send initial alert")
         else:
-            print("No changes detected")
-    
-    # Save current state
-    save_current_state(current_data)
+            # Check for changes
+            print("Checking for changes...")
+            changes = detect_changes(previous_data, current_data)
+            if changes:
+                if send_space_alert(webhook_url, changes=changes):
+                    save_current_state(current_data)
+                else:
+                    raise APIError("Failed to send change alert")
+            else:
+                print("No changes detected")
+                save_current_state(current_data)
+
+    except APIError as e:
+        print(f"API Error: {str(e)}")
+        # Don't update state file on API errors to maintain consistency
+        exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        exit(1)
 
 if __name__ == '__main__':
     main() 
