@@ -70,7 +70,7 @@ def get_sheet_data(service):
         print(f"Unexpected error fetching sheet data: {str(e)}")
         raise APIError("Unexpected error while fetching sheet data")
 
-def send_space_alert(webhook_url, changes=None, initial_state=None):
+def send_space_alert(webhook_url, changes=None, initial_state=None, current_data=None):
     """Send alert to Google Space."""
     try:
         if initial_state:
@@ -84,8 +84,17 @@ def send_space_alert(webhook_url, changes=None, initial_state=None):
         else:
             message = "🔔 *Stock Balance Changes Detected*\n\n"
             print("Preparing changes message")
+            message += "*Changes:*\n"
             for spec, old_val, new_val in changes:
                 message += f"• {spec}: {old_val} → {new_val}\n"
+            
+            message += "\n*Current Stock Levels:*\n"
+            headers = current_data[0]
+            values = current_data[1]
+            for i in range(len(headers)):
+                # Skip 'Specification' header if it exists
+                if headers[i].lower() != 'specification':
+                    message += f"• {headers[i]}: {values[i]}\n"
         
         message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}_"
         
@@ -194,7 +203,7 @@ def main():
             print("Checking for changes...")
             changes = detect_changes(previous_data, current_data)
             if changes:
-                if send_space_alert(webhook_url, changes=changes):
+                if send_space_alert(webhook_url, changes=changes, current_data=current_data):
                     save_current_state(current_data)
                 else:
                     raise APIError("Failed to send change alert")
