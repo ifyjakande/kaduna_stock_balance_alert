@@ -62,7 +62,7 @@ def send_space_alert(webhook_url, changes=None, initial_state=None):
         for spec, old_val, new_val in changes:
             message += f"• {spec}: {old_val} → {new_val}\n"
     
-    message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_"
+    message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}_"
     
     payload = {
         "text": message
