@@ -15,6 +15,12 @@ def mask_sensitive_data(data):
         return f"{data[:3]}...{data[-3:]}"
     return data
 
+def mask_data(data):
+    """Mask sensitive data for logging."""
+    if isinstance(data, list):
+        return "[...data...]"
+    return "***"
+
 # Constants
 SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID')
 if not SPREADSHEET_ID:
@@ -113,7 +119,7 @@ def load_previous_state():
                 if not data or len(data) < 2:
                     print("Invalid state data found, treating as no previous state")
                     return None
-                print(f"Previous state loaded successfully: {data[1]}")  # Print the actual values
+                print("Previous state loaded successfully")
                 return data
         print("No previous state file found")
         return None
@@ -127,7 +133,7 @@ def save_current_state(state):
         print("Invalid state data, skipping save")
         return
         
-    print(f"Saving current state: {state[1]}")  # Print the values being saved
+    print("Saving current state")
     try:
         os.makedirs(os.path.dirname(PREVIOUS_STATE_FILE), exist_ok=True)
         with open(PREVIOUS_STATE_FILE, 'wb') as f:
@@ -155,9 +161,7 @@ def detect_changes(previous_data, current_data):
             print(f"Data length mismatch - Previous: {len(prev_row)}, Current: {len(curr_row)}, Headers: {len(headers)}")
             raise APIError("Data structure mismatch while comparing states")
         
-        print("\nComparing states:")
-        print(f"Previous state: {prev_row}")
-        print(f"Current state:  {curr_row}\n")
+        print("\nComparing states...")
         
         # Compare each value and convert to same type before comparison
         for i in range(len(prev_row)):
@@ -167,7 +171,7 @@ def detect_changes(previous_data, current_data):
             
             if prev_val != curr_val:
                 changes.append((headers[i], prev_row[i], curr_row[i]))
-                print(f"Change detected in {headers[i]}: {prev_val} → {curr_val}")
+                print(f"Change detected in {headers[i]}")  # Don't log the actual values
         
         if changes:
             print(f"Detected {len(changes)} changes")
