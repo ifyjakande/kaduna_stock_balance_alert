@@ -116,15 +116,15 @@ def load_previous_state():
     print("Checking for previous state file")
     try:
         if os.path.exists(PREVIOUS_STATE_FILE):
-            print("Loading previous state")
+            print(f"Loading previous state from {PREVIOUS_STATE_FILE}")
             with open(PREVIOUS_STATE_FILE, 'rb') as f:
                 data = pickle.load(f)
                 if not data or len(data) < 2:
                     print("Invalid state data found, treating as no previous state")
                     return None
-                print("Previous state loaded successfully")
+                print(f"Previous state loaded successfully: {data[1]}")  # Print the actual values
                 return data
-        print("No previous state found")
+        print("No previous state file found")
         return None
     except Exception as e:
         print(f"Error loading previous state: {str(e)}")
@@ -136,11 +136,12 @@ def save_current_state(state):
         print("Invalid state data, skipping save")
         return
         
-    print("Saving current state")
+    print(f"Saving current state: {state[1]}")  # Print the values being saved
     try:
+        os.makedirs(os.path.dirname(PREVIOUS_STATE_FILE), exist_ok=True)
         with open(PREVIOUS_STATE_FILE, 'wb') as f:
             pickle.dump(state, f)
-        print("State saved successfully")
+        print(f"State saved successfully to {PREVIOUS_STATE_FILE}")
     except Exception as e:
         print(f"Error saving state: {str(e)}")
         raise APIError("Failed to save state file")
@@ -163,11 +164,19 @@ def detect_changes(previous_data, current_data):
             print(f"Data length mismatch - Previous: {len(prev_row)}, Current: {len(curr_row)}, Headers: {len(headers)}")
             raise APIError("Data structure mismatch while comparing states")
         
-        # Compare each value
+        print("\nComparing states:")
+        print(f"Previous state: {prev_row}")
+        print(f"Current state:  {curr_row}\n")
+        
+        # Compare each value and convert to same type before comparison
         for i in range(len(prev_row)):
-            if prev_row[i] != curr_row[i]:
+            # Convert both values to strings for comparison to avoid type mismatches
+            prev_val = str(prev_row[i]).strip()
+            curr_val = str(curr_row[i]).strip()
+            
+            if prev_val != curr_val:
                 changes.append((headers[i], prev_row[i], curr_row[i]))
-                print(f"Change detected in {headers[i]}: {prev_row[i]} → {curr_row[i]}")
+                print(f"Change detected in {headers[i]}: {prev_val} → {curr_val}")
         
         if changes:
             print(f"Detected {len(changes)} changes")
