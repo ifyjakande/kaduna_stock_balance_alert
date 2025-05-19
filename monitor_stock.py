@@ -70,31 +70,22 @@ def get_sheet_data(service):
         print(f"Unexpected error fetching sheet data: {str(e)}")
         raise APIError("Unexpected error while fetching sheet data")
 
-def send_space_alert(webhook_url, changes=None, initial_state=None, current_data=None):
+def send_space_alert(webhook_url, changes, current_data):
     """Send alert to Google Space."""
     try:
-        if initial_state:
-            message = "📊 *Initial Stock Balance State*\n\n"
-            print("Preparing initial state message")
-            if len(initial_state) >= 2:  # Ensure we have headers and data
-                headers = initial_state[0]
-                values = initial_state[1]
-                for i in range(len(headers)):
-                    message += f"• {headers[i]}: {values[i]}\n"
-        else:
-            message = "🔔 *Stock Balance Changes Detected*\n\n"
-            print("Preparing changes message")
-            message += "*Changes:*\n"
-            for spec, old_val, new_val in changes:
-                message += f"• {spec}: {old_val} → {new_val}\n"
-            
-            message += "\n*Current Stock Levels:*\n"
-            headers = current_data[0]
-            values = current_data[1]
-            for i in range(len(headers)):
-                # Skip 'Specification' header if it exists
-                if headers[i].lower() != 'specification':
-                    message += f"• {headers[i]}: {values[i]}\n"
+        message = "🔔 *Stock Balance Changes Detected*\n\n"
+        print("Preparing changes message")
+        message += "*Changes:*\n"
+        for spec, old_val, new_val in changes:
+            message += f"• {spec}: {old_val} → {new_val}\n"
+        
+        message += "\n*Current Stock Levels:*\n"
+        headers = current_data[0]
+        values = current_data[1]
+        for i in range(len(headers)):
+            # Skip 'Specification' header if it exists
+            if headers[i].lower() != 'specification':
+                message += f"• {headers[i]}: {values[i]}\n"
         
         message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}_"
         
@@ -206,12 +197,10 @@ def main():
         previous_data = load_previous_state()
         
         if not previous_data:
-            # First run - send initial state alert
-            print("Sending initial state alert...")
-            if send_space_alert(webhook_url, initial_state=current_data):
-                save_current_state(current_data)
-            else:
-                raise APIError("Failed to send initial alert")
+            # First run - just save the initial state without sending alert
+            print("No previous state found, initializing state file...")
+            save_current_state(current_data)
+            print("Initial state saved successfully")
         else:
             # Check for changes
             print("Checking for changes...")
