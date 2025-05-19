@@ -122,7 +122,7 @@ def load_previous_state():
                 if not data or len(data) < 2:
                     print("Invalid state data found, treating as no previous state")
                     return None
-                print("Previous state loaded")
+                print("Previous state loaded successfully")
                 return data
         print("No previous state found")
         return None
@@ -160,14 +160,19 @@ def detect_changes(previous_data, current_data):
         
         # Validate data lengths
         if len(prev_row) != len(curr_row) or len(headers) != len(curr_row):
+            print(f"Data length mismatch - Previous: {len(prev_row)}, Current: {len(curr_row)}, Headers: {len(headers)}")
             raise APIError("Data structure mismatch while comparing states")
         
+        # Compare each value
         for i in range(len(prev_row)):
             if prev_row[i] != curr_row[i]:
                 changes.append((headers[i], prev_row[i], curr_row[i]))
+                print(f"Change detected in {headers[i]}: {prev_row[i]} → {curr_row[i]}")
         
         if changes:
             print(f"Detected {len(changes)} changes")
+        else:
+            print("No changes detected in stock balance")
         return changes
     except Exception as e:
         print(f"Error detecting changes: {str(e)}")
@@ -203,12 +208,13 @@ def main():
             print("Checking for changes...")
             changes = detect_changes(previous_data, current_data)
             if changes:
+                print("Changes detected, sending alert...")
                 if send_space_alert(webhook_url, changes=changes, current_data=current_data):
                     save_current_state(current_data)
                 else:
                     raise APIError("Failed to send change alert")
             else:
-                print("No changes detected")
+                print("No changes detected, updating state file...")
                 save_current_state(current_data)
 
     except APIError as e:
