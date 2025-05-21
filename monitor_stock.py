@@ -7,20 +7,6 @@ from googleapiclient.errors import HttpError
 import requests
 from datetime import datetime
 
-def mask_sensitive_data(data):
-    """Mask sensitive data for logging."""
-    if isinstance(data, list):
-        return "[...]"
-    if isinstance(data, str) and len(data) > 20:
-        return f"{data[:3]}...{data[-3:]}"
-    return data
-
-def mask_data(data):
-    """Mask sensitive data for logging."""
-    if isinstance(data, list):
-        return "[...data...]"
-    return "***"
-
 # Constants
 SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID')
 if not SPREADSHEET_ID:
