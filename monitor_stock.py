@@ -6,6 +6,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import requests
 from datetime import datetime
+import pytz
 
 # Constants
 SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID')
@@ -79,7 +80,10 @@ def send_space_alert(webhook_url, changes, current_data):
             if headers[i].lower() != 'specification':
                 message += f"• {headers[i]}: {values[i]}\n"
         
-        message += f"\n_Updated at: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}_"
+        # Get current time in WAT
+        wat_tz = pytz.timezone('Africa/Lagos')
+        current_time = datetime.now(pytz.UTC).astimezone(wat_tz)
+        message += f"\n_Updated at: {current_time.strftime('%Y-%m-%d %I:%M:%S %p')} WAT_"
         
         payload = {
             "text": message
