@@ -70,7 +70,13 @@ def send_space_alert(webhook_url, changes, current_data):
         print("Preparing changes message")
         message += "*Changes:*\n"
         for spec, old_val, new_val in changes:
-            message += f"• {spec}: {old_val} → {new_val}\n"
+            # Try to convert values to numbers and append 'pieces'
+            try:
+                old_val_str = f"{float(old_val):,.0f} pieces" if str(old_val).strip().replace(',', '').isdigit() else str(old_val)
+                new_val_str = f"{float(new_val):,.0f} pieces" if str(new_val).strip().replace(',', '').isdigit() else str(new_val)
+                message += f"• {spec}: {old_val_str} → {new_val_str}\n"
+            except (ValueError, TypeError):
+                message += f"• {spec}: {old_val} → {new_val}\n"
         
         message += "\n*Current Stock Levels:*\n"
         headers = current_data[0]
@@ -78,7 +84,16 @@ def send_space_alert(webhook_url, changes, current_data):
         for i in range(len(headers)):
             # Skip 'Specification' header if it exists
             if headers[i].lower() != 'specification':
-                message += f"• {headers[i]}: {values[i]}\n"
+                try:
+                    # Try to convert value to number and append 'pieces'
+                    val = values[i]
+                    if str(val).strip().replace(',', '').isdigit():
+                        formatted_val = f"{float(val):,.0f} pieces"
+                    else:
+                        formatted_val = str(val)
+                    message += f"• {headers[i]}: {formatted_val}\n"
+                except (ValueError, TypeError):
+                    message += f"• {headers[i]}: {values[i]}\n"
         
         # Get current time in WAT
         wat_tz = pytz.timezone('Africa/Lagos')
