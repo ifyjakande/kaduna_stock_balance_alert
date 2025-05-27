@@ -85,10 +85,18 @@ def send_space_alert(webhook_url, changes, current_data):
             # Skip 'Specification' header if it exists
             if headers[i].lower() != 'specification':
                 try:
-                    # Try to convert value to number and append 'pieces'
+                    # Try to convert value to number and calculate bags and pieces
                     val = values[i]
                     if str(val).strip().replace(',', '').isdigit():
-                        formatted_val = f"{float(val):,.0f} pieces"
+                        total_pieces = int(float(val))
+                        bags = total_pieces // 20
+                        remaining_pieces = total_pieces % 20
+                        if bags > 0 and remaining_pieces > 0:
+                            formatted_val = f"{bags:,} bags, {remaining_pieces} pieces"
+                        elif bags > 0:
+                            formatted_val = f"{bags:,} bags"
+                        else:
+                            formatted_val = f"{remaining_pieces} pieces"
                     else:
                         formatted_val = str(val)
                     message += f"• {headers[i]}: {formatted_val}\n"
