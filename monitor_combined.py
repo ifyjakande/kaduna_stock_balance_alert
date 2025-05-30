@@ -320,11 +320,12 @@ def format_parts_section(parts_changes, parts_data):
     if len(parts_data) > 0 and len(parts_data[0]) > 1:
         try:
             total_weight = parts_data[0][1]
+            # Only add the total weight if it's a valid number and not a header itself
             if str(total_weight).strip().replace('.', '', 1).isdigit():
                 formatted_total = f"{float(total_weight):,.2f} kg"
-            else:
-                formatted_total = str(total_weight)
-            section += f"• TOTAL WEIGHTS: {formatted_total}\n"
+                section += f"• TOTAL: {formatted_total}\n"
+            elif str(total_weight).lower() != "total weights":
+                section += f"• TOTAL: {total_weight}\n"
         except (ValueError, TypeError, IndexError) as e:
             print(f"Error formatting total weight: {str(e)}")
     
