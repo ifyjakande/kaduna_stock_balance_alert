@@ -1,4 +1,4 @@
-name: Monitor Stock Balance
+name: Monitor Inventory
 
 on:
   schedule:
@@ -21,9 +21,9 @@ jobs:
       uses: actions/cache@v3
       with:
         path: .data
-        key: stock-state-${{ github.run_id }}
+        key: inventory-state-${{ github.run_id }}
         restore-keys: |
-          stock-state-
+          inventory-state-
     
     - name: Install dependencies
       run: |
@@ -41,4 +41,4 @@ jobs:
         SPACE_WEBHOOK_URL: ${{ secrets.SPACE_WEBHOOK_URL }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         ACTIONS_STEP_DEBUG: false
-      run: python monitor_stock.py 
+      run: python monitor_combined.py 
