@@ -237,8 +237,22 @@ def format_stock_section(stock_changes, stock_data):
         for spec, old_val, new_val in stock_changes:
             # Try to convert values to numbers and append 'pieces'
             try:
-                old_val_str = f"{float(old_val):,.0f} pieces" if str(old_val).strip().replace(',', '').isdigit() else str(old_val)
-                new_val_str = f"{float(new_val):,.0f} pieces" if str(new_val).strip().replace(',', '').isdigit() else str(new_val)
+                # Use singular 'piece' if value is 1
+                old_val_num = float(old_val) if str(old_val).strip().replace(',', '').isdigit() else None
+                new_val_num = float(new_val) if str(new_val).strip().replace(',', '').isdigit() else None
+                
+                if old_val_num is not None:
+                    old_suffix = " piece" if old_val_num == 1 else " pieces"
+                    old_val_str = f"{old_val_num:,.0f}{old_suffix}"
+                else:
+                    old_val_str = str(old_val)
+                    
+                if new_val_num is not None:
+                    new_suffix = " piece" if new_val_num == 1 else " pieces"
+                    new_val_str = f"{new_val_num:,.0f}{new_suffix}"
+                else:
+                    new_val_str = str(new_val)
+                
                 section += f"• {spec}: {old_val_str} → {new_val_str}\n"
             except (ValueError, TypeError):
                 section += f"• {spec}: {old_val} → {new_val}\n"
@@ -258,12 +272,17 @@ def format_stock_section(stock_changes, stock_data):
                     total_pieces = int(float(val))
                     bags = total_pieces // 20
                     remaining_pieces = total_pieces % 20
+                    
+                    # Use proper singular/plural forms
+                    bags_text = "1 bag" if bags == 1 else f"{bags:,} bags"
+                    pieces_text = "1 piece" if remaining_pieces == 1 else f"{remaining_pieces} pieces"
+                    
                     if bags > 0 and remaining_pieces > 0:
-                        formatted_val = f"{bags:,} bags, {remaining_pieces} pieces"
+                        formatted_val = f"{bags_text}, {pieces_text}"
                     elif bags > 0:
-                        formatted_val = f"{bags:,} bags"
+                        formatted_val = bags_text
                     else:
-                        formatted_val = f"{remaining_pieces} pieces"
+                        formatted_val = pieces_text
                 else:
                     formatted_val = str(val)
                 section += f"• {headers[i]}: {formatted_val}\n"
@@ -282,8 +301,20 @@ def format_parts_section(parts_changes, parts_data):
         for part, old_val, new_val in parts_changes:
             # Try to convert values to numbers with weight suffix
             try:
-                old_val_str = f"{float(old_val):,.2f} kg" if str(old_val).strip().replace('.', '', 1).isdigit() else str(old_val)
-                new_val_str = f"{float(new_val):,.2f} kg" if str(new_val).strip().replace('.', '', 1).isdigit() else str(new_val)
+                # Check if values are numeric
+                if str(old_val).strip().replace('.', '', 1).isdigit():
+                    old_val_num = float(old_val)
+                    # Use "kg" for all weights as it's a unit, not a count
+                    old_val_str = f"{old_val_num:,.2f} kg"
+                else:
+                    old_val_str = str(old_val)
+                    
+                if str(new_val).strip().replace('.', '', 1).isdigit():
+                    new_val_num = float(new_val)
+                    new_val_str = f"{new_val_num:,.2f} kg"
+                else:
+                    new_val_str = str(new_val)
+                    
                 section += f"• {part}: {old_val_str} → {new_val_str}\n"
             except (ValueError, TypeError):
                 section += f"• {part}: {old_val} → {new_val}\n"
@@ -308,6 +339,7 @@ def format_parts_section(parts_changes, parts_data):
             # Format weight values
             val = values[i]
             if str(val).strip().replace('.', '', 1).isdigit():
+                # "kg" is always singular as it's a unit
                 formatted_val = f"{float(val):,.2f} kg"
             else:
                 formatted_val = str(val)
