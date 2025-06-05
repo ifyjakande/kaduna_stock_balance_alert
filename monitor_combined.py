@@ -14,7 +14,7 @@ if not SPREADSHEET_ID:
     raise ValueError("SPREADSHEET_ID environment variable not set")
     
 STOCK_SHEET_NAME = 'balance'
-STOCK_RANGE = 'A1:O3'  # Adjust range to cover all stock data
+STOCK_RANGE = 'A1:O3'  # Range covers A-O columns (Specification through TOTAL including uncategorised)
 
 PARTS_SHEET_NAME = 'parts'
 PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
