@@ -14,7 +14,7 @@ if not SPREADSHEET_ID:
     raise ValueError("SPREADSHEET_ID environment variable not set")
     
 STOCK_SHEET_NAME = 'balance'
-STOCK_RANGE = 'A1:P3'  # Range covers A-O columns (Specification through TOTAL including uncategorised)
+STOCK_RANGE = 'A1:O3'  # Range covers A-O columns (Specification through TOTAL including uncategorised)
 
 PARTS_SHEET_NAME = 'parts'
 PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
@@ -122,7 +122,9 @@ def detect_stock_changes(previous_data, current_data):
         # Validate data lengths
         if len(prev_row) != len(curr_row) or len(headers) != len(curr_row):
             print(f"Data length mismatch - Previous: {len(prev_row)}, Current: {len(curr_row)}, Headers: {len(headers)}")
-            raise APIError("Data structure mismatch while comparing stock states")
+            print("Resetting previous stock state file to match new structure.")
+            save_current_state(current_data, STOCK_STATE_FILE)
+            return []
         
         print("\nComparing stock states...")
         
