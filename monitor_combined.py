@@ -10,11 +10,15 @@ import pytz
 
 # Constants for Stock Balance
 SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID')
+INVENTORY_SHEET_ID = '1Iaisw7uxa11FSNRNb5vMHB_PiZuhEKMFbQwK0SIYTqo'  # Sheet for inflow/release tracking
 if not SPREADSHEET_ID:
     raise ValueError("SPREADSHEET_ID environment variable not set")
     
 STOCK_SHEET_NAME = 'balance'
 STOCK_RANGE = 'A1:P3'  # Range covers A-P columns (Specification through TOTAL including Gizzard)
+
+INVENTORY_SHEET_NAME = 'Sheet1'  # Adjust if the sheet name is different
+INVENTORY_RANGE = 'A2:I'  # Get all rows from A to I, starting from row 2
 
 PARTS_SHEET_NAME = 'parts'
 PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
@@ -229,7 +233,58 @@ def detect_parts_changes(previous_data, current_data):
         # Return empty changes to avoid further errors
         return []
 
-def format_stock_section(stock_changes, stock_data):
+def get_inventory_balance(service):
+    """Fetch and calculate inventory balance from the inflow/release sheet."""
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=INVENTORY_SHEET_ID,
+            range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
+        ).execute()
+        
+        data = result.get('values', [])
+        if not data:
+            print("No data found in inventory sheet")
+            return None
+            
+        # Sort by year_month in descending order to get the most recent record
+        # year_month format is YYYY-MM
+        sorted_data = sorted(data, key=lambda x: x[1] if len(x) > 1 else '', reverse=True)
+        
+        if sorted_data and len(sorted_data[0]) >= 9:  # Make sure we have enough columns
+            # Get the chicken_quantity_stock_balance from column I (index 8)
+            try:
+                balance = float(sorted_data[0][8])
+                return balance
+            except (ValueError, TypeError):
+                print("Invalid balance value in inventory sheet")
+                return None
+        return None
+    except Exception as e:
+        print(f"Error fetching inventory balance: {str(e)}")
+        return None
+
+def calculate_total_pieces(stock_data):
+    """Calculate total pieces from stock data, excluding Gizzard."""
+    try:
+        headers = stock_data[0]
+        values = stock_data[1]
+        total = 0
+        
+        for i in range(len(headers)):
+            header = headers[i].lower()
+            if header != 'specification' and header != 'gizzard' and header != 'total':
+                try:
+                    val = values[i]
+                    if str(val).strip().replace(',', '').isdigit():
+                        total += int(float(val))
+                except (ValueError, TypeError):
+                    continue
+        return total
+    except Exception as e:
+        print(f"Error calculating total pieces: {str(e)}")
+        return None
+
+def format_stock_section(stock_changes, stock_data, inventory_balance=None):
     """Format the stock section of the alert message."""
     section = ""
     
@@ -285,6 +340,7 @@ def format_stock_section(stock_changes, stock_data):
     section += "*Current Stock Levels:*\n"
     headers = stock_data[0]
     values = stock_data[1]
+    total_pieces = 0
     for i in range(len(headers)):
         # Skip 'Specification' header if it exists
         if headers[i].lower() != 'specification':
@@ -306,9 +362,10 @@ def format_stock_section(stock_changes, stock_data):
                 else:
                     # Handle piece-based values
                     if str(val).strip().replace(',', '').isdigit():
-                        total_pieces = int(float(val))
-                        bags = total_pieces // 20
-                        remaining_pieces = total_pieces % 20
+                        total_pieces = int(float(val)) if header.lower() == 'total' else total_pieces
+                        total_val = int(float(val))
+                        bags = total_val // 20
+                        remaining_pieces = total_val % 20
                         
                         # Use proper singular/plural forms
                         bags_text = "1 bag" if bags == 1 else f"{bags:,} bags"
@@ -325,6 +382,18 @@ def format_stock_section(stock_changes, stock_data):
                 section += f"• {header}: {formatted_val}\n"
             except (ValueError, TypeError):
                 section += f"• {headers[i].title()}: {values[i]}\n"
+    
+    # Add inventory balance comparison if available
+    if inventory_balance is not None and total_pieces > 0:
+        section += "\n*Stock Balance Comparison:*\n"
+        difference = total_pieces - inventory_balance
+        if difference == 0:
+            section += "✅ Stock balance matches inventory records\n"
+        else:
+            section += f"⚠️ Stock balance discrepancy detected:\n"
+            section += f"• Specification Sheet Total: {total_pieces:,} pieces\n"
+            section += f"• Inventory Records Total: {inventory_balance:,.0f} pieces\n"
+            section += f"• Difference: {abs(difference):,} pieces {'more' if difference > 0 else 'less'} in specification sheet\n"
     
     return section
 
@@ -408,7 +477,7 @@ def format_parts_section(parts_changes, parts_data):
     
     return section
 
-def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data):
+def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None):
     """Send combined alert to Google Space."""
     try:
         # Only proceed if there are actual changes
@@ -421,7 +490,7 @@ def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, p
         
         # Add stock section if there are stock changes or if parts had changes
         if stock_changes or parts_changes:
-            message += format_stock_section(stock_changes, stock_data)
+            message += format_stock_section(stock_changes, stock_data, inventory_balance)
             message += "\n"
         
         # Add parts section if there are parts changes or if stock had changes
@@ -464,6 +533,9 @@ def main():
         # Get current parts data
         parts_data = get_sheet_data(service, PARTS_SHEET_NAME, PARTS_RANGE)
         
+        # Get inventory balance for comparison
+        inventory_balance = get_inventory_balance(service)
+        
         # Load previous states
         previous_stock_data = load_previous_state(STOCK_STATE_FILE)
         previous_parts_data = load_previous_state(PARTS_STATE_FILE)
@@ -491,7 +563,7 @@ def main():
         # Send combined alert if there are any changes
         if stock_changes or parts_changes:
             print("Changes detected, sending combined alert...")
-            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data):
+            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance):
                 print("Alert sent successfully, updating state files...")
             else:
                 print("Failed to send alert, but will still update state files...")
