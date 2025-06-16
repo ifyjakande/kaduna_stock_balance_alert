@@ -17,8 +17,8 @@ if not SPREADSHEET_ID:
 STOCK_SHEET_NAME = 'balance'
 STOCK_RANGE = 'A1:P3'  # Range covers A-P columns (Specification through TOTAL including Gizzard)
 
-INVENTORY_SHEET_NAME = 'Sheet1'  # Adjust if the sheet name is different
-INVENTORY_RANGE = 'A2:I'  # Get all rows from A to I, starting from row 2
+INVENTORY_SHEET_NAME = 'summary'  # The sheet name from the inventory tracking spreadsheet
+INVENTORY_RANGE = 'A2:I100'  # Get rows 2-100 from columns A to I to ensure we capture enough historical data
 
 PARTS_SHEET_NAME = 'parts'
 PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
