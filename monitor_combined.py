@@ -18,7 +18,7 @@ STOCK_SHEET_NAME = 'balance'
 STOCK_RANGE = 'A1:P3'  # Range covers A-P columns (Specification through TOTAL including Gizzard)
 
 INVENTORY_SHEET_NAME = 'summary'  # The sheet name from the inventory tracking spreadsheet
-INVENTORY_RANGE = 'A2:I100'  # Get rows 2-100 from columns A to I to ensure we capture enough historical data
+INVENTORY_RANGE = 'A:Z'  # Get all columns since we're finding them by name
 
 PARTS_SHEET_NAME = 'parts'
 PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
@@ -246,14 +246,47 @@ def get_inventory_balance(service):
             print("No data found in inventory sheet")
             return None
             
-        # Sort by year_month in descending order to get the most recent record
-        # year_month format is YYYY-MM
-        sorted_data = sorted(data, key=lambda x: x[1] if len(x) > 1 else '', reverse=True)
+        # Get the header row to find the column indices
+        if len(data) < 2:  # Need at least header row and one data row
+            print("Not enough rows in inventory sheet")
+            return None
+            
+        headers = data[0]
+        try:
+            balance_col_index = headers.index('chicken_quantity_stock_balance')
+            year_month_col_index = headers.index('year_month')
+        except ValueError as e:
+            print(f"Could not find required column in inventory sheet: {str(e)}")
+            return None
+            
+        # Get current year-month in YYYY-MM format
+        current_date = datetime.now(pytz.UTC).astimezone(pytz.timezone('Africa/Lagos'))
+        current_year_month = current_date.strftime('%Y-%m')
         
-        if sorted_data and len(sorted_data[0]) >= 9:  # Make sure we have enough columns
-            # Get the chicken_quantity_stock_balance from column I (index 8)
+        # Find the row for the current month
+        data_rows = data[1:]  # Skip header row
+        current_month_row = None
+        
+        for row in data_rows:
+            if len(row) > year_month_col_index and row[year_month_col_index] == current_year_month:
+                current_month_row = row
+                break
+        
+        if not current_month_row:
+            print(f"Warning: No data found for current month ({current_year_month})")
+            # Sort by year_month in descending order to get the most recent record as fallback
+            sorted_data = sorted(data_rows, 
+                               key=lambda x: x[year_month_col_index] if len(x) > year_month_col_index else '', 
+                               reverse=True)
+            if sorted_data:
+                current_month_row = sorted_data[0]
+                print(f"Using most recent available data from {current_month_row[year_month_col_index]}")
+            else:
+                return None
+        
+        if len(current_month_row) > balance_col_index:
             try:
-                balance = float(sorted_data[0][8])
+                balance = float(current_month_row[balance_col_index])
                 return balance
             except (ValueError, TypeError):
                 print("Invalid balance value in inventory sheet")
