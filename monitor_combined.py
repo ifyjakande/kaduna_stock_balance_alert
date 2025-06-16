@@ -14,7 +14,7 @@ if not SPREADSHEET_ID:
     raise ValueError("SPREADSHEET_ID environment variable not set")
     
 STOCK_SHEET_NAME = 'balance'
-STOCK_RANGE = 'A1:O3'  # Range covers A-O columns (Specification through TOTAL including uncategorised)
+STOCK_RANGE = 'A1:P3'  # Range covers A-P columns (Specification through TOTAL including Gizzard)
 
 PARTS_SHEET_NAME = 'parts'
 PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
@@ -237,23 +237,44 @@ def format_stock_section(stock_changes, stock_data):
     if stock_changes:
         section += "*Stock Balance Changes:*\n"
         for spec, old_val, new_val in stock_changes:
-            # Try to convert values to numbers and append 'pieces'
+            # Capitalize first letter of specification
+            spec = spec.title()
+            
+            # Check if this is a weight-based value (like Gizzard)
+            is_weight = spec.lower() == "gizzard"
+            
+            # Try to convert values to numbers and append appropriate units
             try:
-                # Use singular 'piece' if value is 1
-                old_val_num = float(old_val) if str(old_val).strip().replace(',', '').isdigit() else None
-                new_val_num = float(new_val) if str(new_val).strip().replace(',', '').isdigit() else None
-                
-                if old_val_num is not None:
-                    old_suffix = " piece" if old_val_num == 1 else " pieces"
-                    old_val_str = f"{old_val_num:,.0f}{old_suffix}"
-                else:
-                    old_val_str = str(old_val)
+                if is_weight:
+                    # Handle weight values (in kg)
+                    old_val_num = float(old_val) if str(old_val).strip().replace('.', '', 1).isdigit() else None
+                    new_val_num = float(new_val) if str(new_val).strip().replace('.', '', 1).isdigit() else None
                     
-                if new_val_num is not None:
-                    new_suffix = " piece" if new_val_num == 1 else " pieces"
-                    new_val_str = f"{new_val_num:,.0f}{new_suffix}"
+                    if old_val_num is not None:
+                        old_val_str = f"{old_val_num:,.2f} kg"
+                    else:
+                        old_val_str = str(old_val)
+                        
+                    if new_val_num is not None:
+                        new_val_str = f"{new_val_num:,.2f} kg"
+                    else:
+                        new_val_str = str(new_val)
                 else:
-                    new_val_str = str(new_val)
+                    # Handle piece-based values
+                    old_val_num = float(old_val) if str(old_val).strip().replace(',', '').isdigit() else None
+                    new_val_num = float(new_val) if str(new_val).strip().replace(',', '').isdigit() else None
+                    
+                    if old_val_num is not None:
+                        old_suffix = " piece" if old_val_num == 1 else " pieces"
+                        old_val_str = f"{old_val_num:,.0f}{old_suffix}"
+                    else:
+                        old_val_str = str(old_val)
+                        
+                    if new_val_num is not None:
+                        new_suffix = " piece" if new_val_num == 1 else " pieces"
+                        new_val_str = f"{new_val_num:,.0f}{new_suffix}"
+                    else:
+                        new_val_str = str(new_val)
                 
                 section += f"• {spec}: {old_val_str} → {new_val_str}\n"
             except (ValueError, TypeError):
@@ -268,28 +289,42 @@ def format_stock_section(stock_changes, stock_data):
         # Skip 'Specification' header if it exists
         if headers[i].lower() != 'specification':
             try:
-                # Try to convert value to number and calculate bags and pieces
+                # Capitalize first letter of header
+                header = headers[i].title()
+                
+                # Check if this is a weight-based value (like Gizzard)
+                is_weight = header.lower() == "gizzard"
+                
+                # Try to convert value to number and format appropriately
                 val = values[i]
-                if str(val).strip().replace(',', '').isdigit():
-                    total_pieces = int(float(val))
-                    bags = total_pieces // 20
-                    remaining_pieces = total_pieces % 20
-                    
-                    # Use proper singular/plural forms
-                    bags_text = "1 bag" if bags == 1 else f"{bags:,} bags"
-                    pieces_text = "1 piece" if remaining_pieces == 1 else f"{remaining_pieces} pieces"
-                    
-                    if bags > 0 and remaining_pieces > 0:
-                        formatted_val = f"{bags_text}, {pieces_text}"
-                    elif bags > 0:
-                        formatted_val = bags_text
+                if is_weight:
+                    # Handle weight values (in kg)
+                    if str(val).strip().replace('.', '', 1).isdigit():
+                        formatted_val = f"{float(val):,.2f} kg"
                     else:
-                        formatted_val = pieces_text
+                        formatted_val = str(val)
                 else:
-                    formatted_val = str(val)
-                section += f"• {headers[i]}: {formatted_val}\n"
+                    # Handle piece-based values
+                    if str(val).strip().replace(',', '').isdigit():
+                        total_pieces = int(float(val))
+                        bags = total_pieces // 20
+                        remaining_pieces = total_pieces % 20
+                        
+                        # Use proper singular/plural forms
+                        bags_text = "1 bag" if bags == 1 else f"{bags:,} bags"
+                        pieces_text = "1 piece" if remaining_pieces == 1 else f"{remaining_pieces} pieces"
+                        
+                        if bags > 0 and remaining_pieces > 0:
+                            formatted_val = f"{bags_text}, {pieces_text}"
+                        elif bags > 0:
+                            formatted_val = bags_text
+                        else:
+                            formatted_val = pieces_text
+                    else:
+                        formatted_val = str(val)
+                section += f"• {header}: {formatted_val}\n"
             except (ValueError, TypeError):
-                section += f"• {headers[i]}: {values[i]}\n"
+                section += f"• {headers[i].title()}: {values[i]}\n"
     
     return section
 
@@ -301,6 +336,9 @@ def format_parts_section(parts_changes, parts_data):
     if parts_changes:
         section += "*Parts Weight Changes:*\n"
         for part, old_val, new_val in parts_changes:
+            # Capitalize first letter of part name
+            part = part.title()
+            
             # Try to convert values to numbers with weight suffix
             try:
                 # Check if values are numeric
@@ -340,15 +378,20 @@ def format_parts_section(parts_changes, parts_data):
         try:
             # Format weight values
             val = values[i]
+            # Capitalize part name
+            part_name = part_headers[i].title()
+            
             if str(val).strip().replace('.', '', 1).isdigit():
                 # "kg" is always singular as it's a unit
                 formatted_val = f"{float(val):,.2f} kg"
             else:
                 formatted_val = str(val)
-            section += f"• {part_headers[i]}: {formatted_val}\n"
+            section += f"• {part_name}: {formatted_val}\n"
         except (ValueError, TypeError, IndexError) as e:
             print(f"Error formatting part {i}: {str(e)}")
-            section += f"• {part_headers[i] if i < len(part_headers) else 'Unknown'}: {values[i] if i < len(values) else 'N/A'}\n"
+            # Ensure part name is capitalized even in error case
+            part_name = part_headers[i].title() if i < len(part_headers) else 'Unknown'
+            section += f"• {part_name}: {values[i] if i < len(values) else 'N/A'}\n"
     
     # Add total weight if available
     if len(parts_data) > 0 and len(parts_data[0]) > 1:
@@ -357,9 +400,9 @@ def format_parts_section(parts_changes, parts_data):
             # Only add the total weight if it's a valid number and not a header itself
             if str(total_weight).strip().replace('.', '', 1).isdigit():
                 formatted_total = f"{float(total_weight):,.2f} kg"
-                section += f"• TOTAL: {formatted_total}\n"
+                section += f"• Total: {formatted_total}\n"
             elif str(total_weight).lower() != "total weights":
-                section += f"• TOTAL: {total_weight}\n"
+                section += f"• Total: {total_weight}\n"
         except (ValueError, TypeError, IndexError) as e:
             print(f"Error formatting total weight: {str(e)}")
     
