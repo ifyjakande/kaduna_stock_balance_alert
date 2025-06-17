@@ -419,13 +419,13 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None):
     # Add inventory balance comparison if available
     if inventory_balance is not None and total_pieces > 0:
         section += "\n*Chicken Stock Balance Comparison:*\n"
-        difference = total_pieces - inventory_balance
+        difference = int(total_pieces - inventory_balance)  # Convert to integer
         if difference == 0:
             section += "✅ Chicken stock balance matches inventory records\n"
         else:
             section += f"⚠️ Chicken stock balance discrepancy detected:\n"
             section += f"• Specification Sheet Total: {total_pieces:,} pieces\n"
-            section += f"• Inventory Records Total: {inventory_balance:,.0f} pieces\n"
+            section += f"• Inventory Records Total: {int(inventory_balance):,} pieces\n"  # Convert to integer
             section += f"• Difference: {abs(difference):,} pieces {'more' if difference > 0 else 'less'} in specification sheet\n"
     
     return section
