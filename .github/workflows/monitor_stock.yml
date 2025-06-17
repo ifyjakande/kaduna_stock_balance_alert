@@ -11,19 +11,13 @@ jobs:
     
     steps:
     - uses: actions/checkout@v3
+      with:
+        fetch-depth: 2  # Fetch the last commit to get previous state files
     
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
-    
-    - name: Cache state data
-      uses: actions/cache@v3
-      with:
-        path: .data
-        key: inventory-state-${{ github.run_id }}
-        restore-keys: |
-          inventory-state-
     
     - name: Install dependencies
       run: |
@@ -41,4 +35,12 @@ jobs:
         SPACE_WEBHOOK_URL: ${{ secrets.SPACE_WEBHOOK_URL }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         ACTIONS_STEP_DEBUG: false
-      run: python monitor_combined.py 
+      run: |
+        python monitor_combined.py
+        
+    - name: Commit and push state files if changed
+      run: |
+        git config --global user.name 'GitHub Action'
+        git config --global user.email 'action@github.com'
+        git add previous_stock_state.pickle previous_parts_state.pickle
+        git diff --staged --quiet || (git commit -m "chore: update state files" && git push) 
