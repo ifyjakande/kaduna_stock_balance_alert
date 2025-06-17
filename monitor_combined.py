@@ -27,7 +27,7 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 SERVICE_ACCOUNT_FILE = 'service-account.json'
 
 # Set up data directory for state persistence
-DATA_DIR = os.path.join(os.getenv('GITHUB_WORKSPACE', os.getcwd()), '.data')
+DATA_DIR = os.getenv('GITHUB_WORKSPACE', os.getcwd())
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # Separate state files for stock and parts
