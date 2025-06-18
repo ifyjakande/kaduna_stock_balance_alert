@@ -41,6 +41,6 @@ env/
 ehthumbs.db
 Thumbs.db
 
-# Keep state files
-!previous_stock_state.pickle
-!previous_parts_state.pickle 
+# State files (handled by GitHub Actions cache)
+previous_stock_state.pickle
+previous_parts_state.pickle 

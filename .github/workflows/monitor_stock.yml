@@ -5,23 +5,27 @@ on:
     - cron: '*/10 * * * *'  # Runs every 10 minutes
   workflow_dispatch:  # Allows manual triggering
 
-permissions:
-  contents: write  # Allow writing to repository
-
 jobs:
   monitor:
     runs-on: ubuntu-latest
     
     steps:
     - uses: actions/checkout@v3
-      with:
-        fetch-depth: 2  # Fetch the last commit to get previous state files
-        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
+    
+    - name: Cache state files
+      uses: actions/cache@v3
+      with:
+        path: |
+          previous_stock_state.pickle
+          previous_parts_state.pickle
+        key: inventory-state-v1-${{ github.run_number }}
+        restore-keys: |
+          inventory-state-v1-
     
     - name: Install dependencies
       run: |
@@ -40,13 +44,4 @@ jobs:
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         ACTIONS_STEP_DEBUG: false
       run: |
-        python monitor_combined.py
-        
-    - name: Commit and push state files if changed
-      run: |
-        git config --global user.name 'github-actions[bot]'
-        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git add previous_stock_state.pickle previous_parts_state.pickle
-        git diff --staged --quiet || (git commit -m "chore: update state files" && git push)
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        python monitor_combined.py 
