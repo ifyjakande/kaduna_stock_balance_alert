@@ -296,6 +296,69 @@ def get_inventory_balance(service):
         print(f"Error fetching inventory balance: {str(e)}")
         return None
 
+def get_gizzard_inventory_balance(service):
+    """Fetch and calculate gizzard weight balance from the inventory sheet."""
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=INVENTORY_SHEET_ID,
+            range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
+        ).execute()
+        
+        data = result.get('values', [])
+        if not data:
+            print("No data found in inventory sheet for gizzard")
+            return None
+            
+        # Get the header row to find the column indices
+        if len(data) < 2:  # Need at least header row and one data row
+            print("Not enough rows in inventory sheet for gizzard")
+            return None
+            
+        headers = data[0]
+        try:
+            gizzard_col_index = headers.index('gizzard_weight_stock_balance')
+            year_month_col_index = headers.index('year_month')
+        except ValueError as e:
+            print(f"Could not find required column in inventory sheet for gizzard: {str(e)}")
+            return None
+            
+        # Get current year-month in YYYY-MM format
+        current_date = datetime.now(pytz.UTC).astimezone(pytz.timezone('Africa/Lagos'))
+        current_year_month = current_date.strftime('%Y-%m')
+        
+        # Find the row for the current month
+        data_rows = data[1:]  # Skip header row
+        current_month_row = None
+        
+        for row in data_rows:
+            if len(row) > year_month_col_index and row[year_month_col_index] == current_year_month:
+                current_month_row = row
+                break
+        
+        if not current_month_row:
+            print(f"Warning: No data found for current month ({current_year_month}) for gizzard")
+            # Sort by year_month in descending order to get the most recent record as fallback
+            sorted_data = sorted(data_rows, 
+                               key=lambda x: x[year_month_col_index] if len(x) > year_month_col_index else '', 
+                               reverse=True)
+            if sorted_data:
+                current_month_row = sorted_data[0]
+                print(f"Using most recent available data from {current_month_row[year_month_col_index]} for gizzard")
+            else:
+                return None
+        
+        if len(current_month_row) > gizzard_col_index:
+            try:
+                balance = float(current_month_row[gizzard_col_index])
+                return balance
+            except (ValueError, TypeError):
+                print("Invalid gizzard balance value in inventory sheet")
+                return None
+        return None
+    except Exception as e:
+        print(f"Error fetching gizzard inventory balance: {str(e)}")
+        return None
+
 def calculate_total_pieces(stock_data):
     """Calculate total pieces from stock data, excluding Gizzard."""
     try:
@@ -317,7 +380,7 @@ def calculate_total_pieces(stock_data):
         print(f"Error calculating total pieces: {str(e)}")
         return None
 
-def format_stock_section(stock_changes, stock_data, inventory_balance=None):
+def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizzard_inventory_balance=None):
     """Format the stock section of the alert message."""
     section = ""
     
@@ -374,6 +437,8 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None):
     headers = stock_data[0]
     values = stock_data[1]
     total_pieces = 0
+    current_gizzard_weight = 0
+    
     for i in range(len(headers)):
         # Skip 'Specification' header if it exists
         if headers[i].lower() != 'specification':
@@ -389,7 +454,8 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None):
                 if is_weight:
                     # Handle weight values (in kg)
                     if str(val).strip().replace('.', '', 1).isdigit():
-                        formatted_val = f"{float(val):,.2f} kg"
+                        current_gizzard_weight = float(val)
+                        formatted_val = f"{current_gizzard_weight:,.2f} kg"
                     else:
                         formatted_val = str(val)
                 else:
@@ -427,6 +493,18 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None):
             section += f"• Specification Sheet Total: {total_pieces:,} pieces\n"
             section += f"• Inventory Records Total: {int(inventory_balance):,} pieces\n"  # Convert to integer
             section += f"• Difference: {abs(difference):,} pieces {'more' if difference > 0 else 'less'} in specification sheet\n"
+    
+    # Add gizzard inventory balance comparison if available
+    if gizzard_inventory_balance is not None and current_gizzard_weight > 0:
+        section += "\n*Gizzard Stock Balance Comparison:*\n"
+        difference = current_gizzard_weight - gizzard_inventory_balance
+        if abs(difference) < 0.01:  # Allow for small floating point differences
+            section += "✅ Gizzard stock balance matches inventory records\n"
+        else:
+            section += f"⚠️ Gizzard stock balance discrepancy detected:\n"
+            section += f"• Specification Sheet Gizzard: {current_gizzard_weight:,.2f} kg\n"
+            section += f"• Inventory Records Gizzard: {gizzard_inventory_balance:,.2f} kg\n"
+            section += f"• Difference: {abs(difference):,.2f} kg {'more' if difference > 0 else 'less'} in specification sheet\n"
     
     return section
 
@@ -510,7 +588,7 @@ def format_parts_section(parts_changes, parts_data):
     
     return section
 
-def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None):
+def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None, gizzard_inventory_balance=None):
     """Send combined alert to Google Space."""
     try:
         # Only proceed if there are actual changes
@@ -523,7 +601,7 @@ def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, p
         
         # Add stock section if there are stock changes or if parts had changes
         if stock_changes or parts_changes:
-            message += format_stock_section(stock_changes, stock_data, inventory_balance)
+            message += format_stock_section(stock_changes, stock_data, inventory_balance, gizzard_inventory_balance)
             message += "\n"
         
         # Add parts section if there are parts changes or if stock had changes
@@ -569,6 +647,9 @@ def main():
         # Get inventory balance for comparison
         inventory_balance = get_inventory_balance(service)
         
+        # Get gizzard inventory balance for comparison
+        gizzard_inventory_balance = get_gizzard_inventory_balance(service)
+        
         # Load previous states
         previous_stock_data = load_previous_state(STOCK_STATE_FILE)
         previous_parts_data = load_previous_state(PARTS_STATE_FILE)
@@ -596,7 +677,7 @@ def main():
         # Send combined alert if there are any changes
         if stock_changes or parts_changes:
             print("Changes detected, sending combined alert...")
-            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance):
+            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance, gizzard_inventory_balance):
                 print("Alert sent successfully, updating state files...")
             else:
                 print("Failed to send alert, but will still update state files...")
