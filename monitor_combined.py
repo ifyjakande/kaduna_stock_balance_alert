@@ -20,7 +20,7 @@ STOCK_RANGE = 'A1:P3'  # Range covers A-P columns (Specification through TOTAL i
 INVENTORY_SHEET_NAME = 'summary'  # The sheet name from the inventory tracking spreadsheet
 INVENTORY_RANGE = 'A:Z'  # Get all columns since we're finding them by name
 
-PARTS_SHEET_NAME = 'parts'
+PARTS_SHEET_NAME = 'parts_balance'
 PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
@@ -159,20 +159,20 @@ def detect_parts_changes(previous_data, current_data):
     
     try:
         changes = []
-        # Get part headers from row 2 (starting from column C which is index 2)
+        # Get part headers from row 1 (starting from column B which is index 1)
         part_headers = []
-        if len(current_data) > 1 and len(current_data[1]) > 2:
-            part_headers = current_data[1][2:]  # Skip empty cell and PARTS TYPE
+        if len(current_data) > 0 and len(current_data[0]) > 1:
+            part_headers = current_data[0][1:]  # Skip "Parts Type" column
         
-        # Get previous values from row 1 (starting from column C which is index 2)
+        # Get previous values from row 2 (starting from column B which is index 1)
         prev_values = []
-        if len(previous_data) > 0 and len(previous_data[0]) > 2:
-            prev_values = previous_data[0][2:]  # Skip DATE and TOTAL WEIGHTS
+        if len(previous_data) > 1 and len(previous_data[1]) > 1:
+            prev_values = previous_data[1][1:]  # Skip "Balance" label
         
-        # Get current values from row 1 (starting from column C which is index 2)
+        # Get current values from row 2 (starting from column B which is index 1)
         curr_values = []
-        if len(current_data) > 0 and len(current_data[0]) > 2:
-            curr_values = current_data[0][2:]  # Skip DATE and TOTAL WEIGHTS
+        if len(current_data) > 1 and len(current_data[1]) > 1:
+            curr_values = current_data[1][1:]  # Skip "Balance" label
         
         # Validate data structure
         if len(part_headers) != len(curr_values):
@@ -210,14 +210,7 @@ def detect_parts_changes(previous_data, current_data):
                 changes.append((part_headers[i], prev_values[i], curr_values[i]))
                 print(f"Change detected in {part_headers[i]}")
         
-        # Also check if total weight changed
-        if len(previous_data[0]) > 1 and len(current_data[0]) > 1:
-            prev_total = str(previous_data[0][1]).strip()  # TOTAL WEIGHTS
-            curr_total = str(current_data[0][1]).strip()   # TOTAL WEIGHTS
-            
-            if prev_total != curr_total:
-                changes.append(("TOTAL WEIGHTS", previous_data[0][1], current_data[0][1]))
-                print("Change detected in TOTAL WEIGHTS")
+        # Total is now included in the part headers and values, so no separate check needed
         
         if changes:
             print(f"Detected {len(changes)} parts changes")
@@ -543,15 +536,15 @@ def format_parts_section(parts_changes, parts_data):
     # Always add current parts weights
     section += "*Current Parts Weights:*\n"
     
-    # Get part headers from row 2 (starting from column C which is index 2)
+    # Get part headers from row 1 (starting from column B which is index 1)
     part_headers = []
-    if len(parts_data) > 1 and len(parts_data[1]) > 2:
-        part_headers = parts_data[1][2:]  # Skip empty cell and PARTS TYPE
+    if len(parts_data) > 0 and len(parts_data[0]) > 1:
+        part_headers = parts_data[0][1:]  # Skip "Parts Type" column
     
-    # Get values from row 1 (starting from column C which is index 2)
+    # Get values from row 2 (starting from column B which is index 1)
     values = []
-    if len(parts_data) > 0 and len(parts_data[0]) > 2:
-        values = parts_data[0][2:]  # Skip DATE and TOTAL WEIGHTS in row 1
+    if len(parts_data) > 1 and len(parts_data[1]) > 1:
+        values = parts_data[1][1:]  # Skip "Balance" label in row 2
     
     # Map values to headers
     for i in range(min(len(part_headers), len(values))):
@@ -572,19 +565,6 @@ def format_parts_section(parts_changes, parts_data):
             # Ensure part name is capitalized even in error case
             part_name = part_headers[i].title() if i < len(part_headers) else 'Unknown'
             section += f"• {part_name}: {values[i] if i < len(values) else 'N/A'}\n"
-    
-    # Add total weight if available
-    if len(parts_data) > 0 and len(parts_data[0]) > 1:
-        try:
-            total_weight = parts_data[0][1]
-            # Only add the total weight if it's a valid number and not a header itself
-            if str(total_weight).strip().replace('.', '', 1).isdigit():
-                formatted_total = f"{float(total_weight):,.2f} kg"
-                section += f"• Total: {formatted_total}\n"
-            elif str(total_weight).lower() != "total weights":
-                section += f"• Total: {total_weight}\n"
-        except (ValueError, TypeError, IndexError) as e:
-            print(f"Error formatting total weight: {str(e)}")
     
     return section
 
