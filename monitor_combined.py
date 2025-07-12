@@ -60,7 +60,7 @@ def get_sheet_data(service, sheet_name, range_name):
         data = result.get('values', [])
         
         # Validate data structure
-        min_rows = 2 if sheet_name == STOCK_SHEET_NAME else 3
+        min_rows = 2  # Both stock and parts sheets now have 2 rows
         if not data or len(data) < min_rows:
             raise APIError(f"Invalid data structure received from Google Sheets for {sheet_name}")
             
@@ -81,7 +81,7 @@ def load_previous_state(state_file):
             print(f"Loading previous state from {state_file}")
             with open(state_file, 'rb') as f:
                 data = pickle.load(f)
-                min_rows = 2 if state_file == STOCK_STATE_FILE else 3
+                min_rows = 2  # Both state files now expect 2 rows
                 if not data or len(data) < min_rows:
                     print("Invalid state data found, treating as no previous state")
                     return None
@@ -95,7 +95,7 @@ def load_previous_state(state_file):
 
 def save_current_state(state, state_file):
     """Save current state to file."""
-    min_rows = 2 if state_file == STOCK_STATE_FILE else 3
+    min_rows = 2  # Both state files now expect 2 rows
     if not state or len(state) < min_rows:
         print("Invalid state data, skipping save")
         return
