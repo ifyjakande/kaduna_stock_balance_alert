@@ -246,7 +246,7 @@ def get_inventory_balance(service):
             
         headers = data[0]
         try:
-            balance_col_index = headers.index('chicken_quantity_stock_balance')
+            balance_col_index = headers.index('whole_chicken_quantity_stock_balance')
             year_month_col_index = headers.index('year_month')
         except ValueError as e:
             print(f"Could not find required column in inventory sheet: {str(e)}")
@@ -477,12 +477,12 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizz
     
     # Add inventory balance comparison if available
     if inventory_balance is not None and total_pieces > 0:
-        section += "\n*Chicken Stock Balance Comparison:*\n"
+        section += "\n*Whole Chicken Stock Balance Comparison:*\n"
         difference = int(total_pieces - inventory_balance)  # Convert to integer
         if difference == 0:
-            section += "✅ Chicken stock balance matches inventory records\n"
+            section += "✅ Whole chicken stock balance matches inventory records\n"
         else:
-            section += f"⚠️ Chicken stock balance discrepancy detected:\n"
+            section += f"⚠️ Whole chicken stock balance discrepancy detected:\n"
             section += f"• Specification Sheet Total: {total_pieces:,} pieces\n"
             section += f"• Inventory Records Total: {int(inventory_balance):,} pieces\n"  # Convert to integer
             section += f"• Difference: {abs(difference):,} pieces {'more' if difference > 0 else 'less'} in specification sheet\n"
@@ -576,7 +576,7 @@ def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, p
             print("No changes detected in either stock or parts. No alert needed.")
             return True
         
-        message = "🔔 *Inventory Changes Detected*\n\n"
+        message = "🔔 *Kaduna Inventory Changes Detected*\n\n"
         print("Preparing combined changes message")
         
         # Add stock section if there are stock changes or if parts had changes
