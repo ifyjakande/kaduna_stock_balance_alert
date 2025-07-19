@@ -41,7 +41,8 @@ jobs:
     - name: Run monitoring script
       env:
         SPACE_WEBHOOK_URL: ${{ secrets.SPACE_WEBHOOK_URL }}
-        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        SPECIFICATION_SHEET_ID: ${{ secrets.SPECIFICATION_SHEET_ID }}
+        INVENTORY_SHEET_ID: ${{ secrets.INVENTORY_SHEET_ID }}
         ACTIONS_STEP_DEBUG: false
       run: |
         python monitor_combined.py 
