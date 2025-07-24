@@ -35,7 +35,8 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # Separate state files for stock, parts, and differences
 STOCK_STATE_FILE = os.path.join(DATA_DIR, 'previous_stock_state.pickle')
 PARTS_STATE_FILE = os.path.join(DATA_DIR, 'previous_parts_state.pickle')
-DIFFERENCES_STATE_FILE = os.path.join(DATA_DIR, 'previous_differences_state.pickle')
+WHOLE_CHICKEN_DIFF_STATE_FILE = os.path.join(DATA_DIR, 'previous_whole_chicken_diff_state.pickle')
+GIZZARD_DIFF_STATE_FILE = os.path.join(DATA_DIR, 'previous_gizzard_diff_state.pickle')
 
 class APIError(Exception):
     """Custom exception for API related errors."""
@@ -84,10 +85,11 @@ def load_previous_state(state_file):
             print(f"Loading previous state from {state_file}")
             with open(state_file, 'rb') as f:
                 data = pickle.load(f)
-                # Check if this is the differences state file (contains dictionary)
-                if 'differences_state' in state_file:
-                    if not isinstance(data, dict):
-                        print("Invalid differences state data found, treating as no previous state")
+                # Check if this is a difference state file (contains single value)
+                if 'diff_state' in state_file:
+                    # Difference state files contain single numeric values
+                    if not isinstance(data, (int, float)) and data is not None:
+                        print("Invalid difference state data found, treating as no previous state")
                         return None
                 else:
                     # Stock and parts state files expect 2 rows
@@ -105,10 +107,11 @@ def load_previous_state(state_file):
 
 def save_current_state(state, state_file):
     """Save current state to file."""
-    # Check if this is the differences state file (contains dictionary)
-    if 'differences_state' in state_file:
-        if not isinstance(state, dict):
-            print("Invalid differences state data, skipping save")
+    # Check if this is a difference state file (contains single value)
+    if 'diff_state' in state_file:
+        # Difference state files contain single numeric values
+        if not isinstance(state, (int, float)) and state is not None:
+            print("Invalid difference state data, skipping save")
             return
     else:
         # Stock and parts state files expect 2 rows
@@ -243,44 +246,55 @@ def detect_parts_changes(previous_data, current_data):
         # Return empty changes to avoid further errors
         return []
 
-def detect_difference_changes(previous_differences, current_differences):
-    """Detect changes between previous and current inventory balance differences."""
-    if not previous_differences:
-        print("No previous differences data available")
+def detect_chicken_difference_changes(previous_chicken_diff, current_chicken_diff):
+    """Detect changes between previous and current whole chicken inventory balance difference."""
+    if previous_chicken_diff is None:
+        print("No previous whole chicken difference data available")
         return []
     
     try:
         changes = []
         
-        print("\nComparing difference states...")
+        print("\nComparing whole chicken difference states...")
         
-        # Check whole chicken difference changes
-        prev_chicken_diff = previous_differences.get('whole_chicken_difference')
-        curr_chicken_diff = current_differences.get('whole_chicken_difference')
+        if current_chicken_diff is not None and previous_chicken_diff != current_chicken_diff:
+            changes.append(('Whole Chicken Balance Difference', previous_chicken_diff, current_chicken_diff))
+            print(f"Change detected in Whole Chicken Balance Difference")
         
-        if prev_chicken_diff is not None and curr_chicken_diff is not None:
-            if prev_chicken_diff != curr_chicken_diff:
-                changes.append(('Whole Chicken Balance Difference', prev_chicken_diff, curr_chicken_diff))
-                print(f"Change detected in Whole Chicken Balance Difference")
+        if changes:
+            print(f"Detected {len(changes)} whole chicken difference changes")
+        else:
+            print("No changes detected in whole chicken inventory balance difference")
+        return changes
+    except Exception as e:
+        print(f"Error detecting whole chicken difference changes: {str(e)}")
+        raise APIError("Failed to compare whole chicken difference states")
+
+def detect_gizzard_difference_changes(previous_gizzard_diff, current_gizzard_diff):
+    """Detect changes between previous and current gizzard inventory balance difference."""
+    if previous_gizzard_diff is None:
+        print("No previous gizzard difference data available")
+        return []
+    
+    try:
+        changes = []
         
-        # Check gizzard difference changes
-        prev_gizzard_diff = previous_differences.get('gizzard_difference')
-        curr_gizzard_diff = current_differences.get('gizzard_difference')
+        print("\nComparing gizzard difference states...")
         
-        if prev_gizzard_diff is not None and curr_gizzard_diff is not None:
+        if current_gizzard_diff is not None:
             # Use small tolerance for floating point comparison
-            if abs(prev_gizzard_diff - curr_gizzard_diff) >= 0.01:
-                changes.append(('Gizzard Balance Difference', prev_gizzard_diff, curr_gizzard_diff))
+            if abs(previous_gizzard_diff - current_gizzard_diff) >= 0.01:
+                changes.append(('Gizzard Balance Difference', previous_gizzard_diff, current_gizzard_diff))
                 print(f"Change detected in Gizzard Balance Difference")
         
         if changes:
-            print(f"Detected {len(changes)} difference changes")
+            print(f"Detected {len(changes)} gizzard difference changes")
         else:
-            print("No changes detected in inventory balance differences")
+            print("No changes detected in gizzard inventory balance difference")
         return changes
     except Exception as e:
-        print(f"Error detecting difference changes: {str(e)}")
-        raise APIError("Failed to compare difference states")
+        print(f"Error detecting gizzard difference changes: {str(e)}")
+        raise APIError("Failed to compare gizzard difference states")
 
 def get_inventory_balance(service):
     """Fetch and calculate inventory balance from the inflow/release sheet."""
@@ -432,19 +446,17 @@ def calculate_total_pieces(stock_data):
 def calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_balance):
     """Calculate current inventory balance differences."""
     try:
-        differences = {}
-        
         # Calculate whole chicken difference
         total_pieces = calculate_total_pieces(stock_data)
+        whole_chicken_diff = None
         if total_pieces is not None and inventory_balance is not None:
-            differences['whole_chicken_difference'] = int(total_pieces - inventory_balance)
-        else:
-            differences['whole_chicken_difference'] = None
+            whole_chicken_diff = int(total_pieces - inventory_balance)
         
         # Calculate gizzard difference
         headers = stock_data[0]
         values = stock_data[1]
         current_gizzard_weight = 0
+        gizzard_diff = None
         
         for i in range(len(headers)):
             if headers[i].lower() == 'gizzard':
@@ -456,14 +468,12 @@ def calculate_current_differences(stock_data, inventory_balance, gizzard_invento
                     break
         
         if current_gizzard_weight > 0 and gizzard_inventory_balance is not None:
-            differences['gizzard_difference'] = current_gizzard_weight - gizzard_inventory_balance
-        else:
-            differences['gizzard_difference'] = None
+            gizzard_diff = current_gizzard_weight - gizzard_inventory_balance
         
-        return differences
+        return whole_chicken_diff, gizzard_diff
     except Exception as e:
         print(f"Error calculating current differences: {str(e)}")
-        return {}
+        return None, None
 
 def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizzard_inventory_balance=None):
     """Format the stock section of the alert message."""
@@ -660,11 +670,11 @@ def format_parts_section(parts_changes, parts_data):
     
     return section
 
-def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None, gizzard_inventory_balance=None, difference_changes=None):
+def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None, gizzard_inventory_balance=None, chicken_difference_changes=None, gizzard_difference_changes=None):
     """Send combined alert to Google Space."""
     try:
         # Only proceed if there are actual changes
-        if not stock_changes and not parts_changes and not difference_changes:
+        if not stock_changes and not parts_changes and not chicken_difference_changes and not gizzard_difference_changes:
             print("No changes detected in stock, parts, or differences. No alert needed.")
             return True
         
@@ -672,6 +682,12 @@ def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, p
         print("Preparing combined changes message")
         
         # Add difference changes section if there are difference changes
+        difference_changes = []
+        if chicken_difference_changes:
+            difference_changes.extend(chicken_difference_changes)
+        if gizzard_difference_changes:
+            difference_changes.extend(gizzard_difference_changes)
+            
         if difference_changes:
             message += "*Inventory Balance Difference Changes:*\n"
             for change_type, old_val, new_val in difference_changes:
@@ -740,15 +756,17 @@ def main():
         # Load previous states
         previous_stock_data = load_previous_state(STOCK_STATE_FILE)
         previous_parts_data = load_previous_state(PARTS_STATE_FILE)
-        previous_differences = load_previous_state(DIFFERENCES_STATE_FILE)
+        previous_chicken_diff = load_previous_state(WHOLE_CHICKEN_DIFF_STATE_FILE)
+        previous_gizzard_diff = load_previous_state(GIZZARD_DIFF_STATE_FILE)
         
         # Calculate current differences
-        current_differences = calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_balance)
+        current_chicken_diff, current_gizzard_diff = calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_balance)
         
         # Initialize flags for state updates
         stock_state_needs_update = True
         parts_state_needs_update = True
-        differences_state_needs_update = True
+        chicken_diff_state_needs_update = True
+        gizzard_diff_state_needs_update = True
         
         # Check for changes in stock data
         stock_changes = []
@@ -766,18 +784,26 @@ def main():
             print("Checking for parts changes...")
             parts_changes = detect_parts_changes(previous_parts_data, parts_data)
         
-        # Check for changes in inventory balance differences
-        difference_changes = []
-        if not previous_differences:
-            print("No previous differences state found, initializing differences state file...")
+        # Check for changes in whole chicken inventory balance differences
+        chicken_difference_changes = []
+        if previous_chicken_diff is None:
+            print("No previous whole chicken difference state found, initializing state file...")
         else:
-            print("Checking for difference changes...")
-            difference_changes = detect_difference_changes(previous_differences, current_differences)
+            print("Checking for whole chicken difference changes...")
+            chicken_difference_changes = detect_chicken_difference_changes(previous_chicken_diff, current_chicken_diff)
+        
+        # Check for changes in gizzard inventory balance differences
+        gizzard_difference_changes = []
+        if previous_gizzard_diff is None:
+            print("No previous gizzard difference state found, initializing state file...")
+        else:
+            print("Checking for gizzard difference changes...")
+            gizzard_difference_changes = detect_gizzard_difference_changes(previous_gizzard_diff, current_gizzard_diff)
         
         # Send combined alert if there are any changes
-        if stock_changes or parts_changes or difference_changes:
+        if stock_changes or parts_changes or chicken_difference_changes or gizzard_difference_changes:
             print("Changes detected, sending combined alert...")
-            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance, gizzard_inventory_balance, difference_changes):
+            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance, gizzard_inventory_balance, chicken_difference_changes, gizzard_difference_changes):
                 print("Alert sent successfully, updating state files...")
             else:
                 print("Failed to send alert, but will still update state files...")
@@ -789,8 +815,10 @@ def main():
             save_current_state(stock_data, STOCK_STATE_FILE)
         if parts_state_needs_update:
             save_current_state(parts_data, PARTS_STATE_FILE)
-        if differences_state_needs_update:
-            save_current_state(current_differences, DIFFERENCES_STATE_FILE)
+        if chicken_diff_state_needs_update:
+            save_current_state(current_chicken_diff, WHOLE_CHICKEN_DIFF_STATE_FILE)
+        if gizzard_diff_state_needs_update:
+            save_current_state(current_gizzard_diff, GIZZARD_DIFF_STATE_FILE)
 
     except APIError as e:
         print(f"API Error: {str(e)}")

@@ -23,10 +23,11 @@ jobs:
         path: |
           previous_stock_state.pickle
           previous_parts_state.pickle
-          previous_differences_state.pickle
-        key: inventory-state-v2-${{ github.run_number }}
+          previous_whole_chicken_diff_state.pickle
+          previous_gizzard_diff_state.pickle
+        key: inventory-state-v3-${{ github.run_number }}
         restore-keys: |
-          inventory-state-v2-
+          inventory-state-v3-
     
     - name: Install dependencies
       run: |
