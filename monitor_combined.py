@@ -32,9 +32,10 @@ SERVICE_ACCOUNT_FILE = 'service-account.json'
 DATA_DIR = os.getenv('GITHUB_WORKSPACE', os.getcwd())
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# Separate state files for stock and parts
+# Separate state files for stock, parts, and differences
 STOCK_STATE_FILE = os.path.join(DATA_DIR, 'previous_stock_state.pickle')
 PARTS_STATE_FILE = os.path.join(DATA_DIR, 'previous_parts_state.pickle')
+DIFFERENCES_STATE_FILE = os.path.join(DATA_DIR, 'previous_differences_state.pickle')
 
 class APIError(Exception):
     """Custom exception for API related errors."""
@@ -83,10 +84,17 @@ def load_previous_state(state_file):
             print(f"Loading previous state from {state_file}")
             with open(state_file, 'rb') as f:
                 data = pickle.load(f)
-                min_rows = 2  # Both state files now expect 2 rows
-                if not data or len(data) < min_rows:
-                    print("Invalid state data found, treating as no previous state")
-                    return None
+                # Check if this is the differences state file (contains dictionary)
+                if 'differences_state' in state_file:
+                    if not isinstance(data, dict):
+                        print("Invalid differences state data found, treating as no previous state")
+                        return None
+                else:
+                    # Stock and parts state files expect 2 rows
+                    min_rows = 2
+                    if not data or len(data) < min_rows:
+                        print("Invalid state data found, treating as no previous state")
+                        return None
                 print("Previous state loaded successfully")
                 return data
         print("No previous state file found")
@@ -97,10 +105,17 @@ def load_previous_state(state_file):
 
 def save_current_state(state, state_file):
     """Save current state to file."""
-    min_rows = 2  # Both state files now expect 2 rows
-    if not state or len(state) < min_rows:
-        print("Invalid state data, skipping save")
-        return
+    # Check if this is the differences state file (contains dictionary)
+    if 'differences_state' in state_file:
+        if not isinstance(state, dict):
+            print("Invalid differences state data, skipping save")
+            return
+    else:
+        # Stock and parts state files expect 2 rows
+        min_rows = 2
+        if not state or len(state) < min_rows:
+            print("Invalid state data, skipping save")
+            return
         
     print(f"Saving current state to {state_file}")
     try:
@@ -227,6 +242,45 @@ def detect_parts_changes(previous_data, current_data):
         print("Parts state file updated with current data. Next run should work correctly.")
         # Return empty changes to avoid further errors
         return []
+
+def detect_difference_changes(previous_differences, current_differences):
+    """Detect changes between previous and current inventory balance differences."""
+    if not previous_differences:
+        print("No previous differences data available")
+        return []
+    
+    try:
+        changes = []
+        
+        print("\nComparing difference states...")
+        
+        # Check whole chicken difference changes
+        prev_chicken_diff = previous_differences.get('whole_chicken_difference')
+        curr_chicken_diff = current_differences.get('whole_chicken_difference')
+        
+        if prev_chicken_diff is not None and curr_chicken_diff is not None:
+            if prev_chicken_diff != curr_chicken_diff:
+                changes.append(('Whole Chicken Balance Difference', prev_chicken_diff, curr_chicken_diff))
+                print(f"Change detected in Whole Chicken Balance Difference")
+        
+        # Check gizzard difference changes
+        prev_gizzard_diff = previous_differences.get('gizzard_difference')
+        curr_gizzard_diff = current_differences.get('gizzard_difference')
+        
+        if prev_gizzard_diff is not None and curr_gizzard_diff is not None:
+            # Use small tolerance for floating point comparison
+            if abs(prev_gizzard_diff - curr_gizzard_diff) >= 0.01:
+                changes.append(('Gizzard Balance Difference', prev_gizzard_diff, curr_gizzard_diff))
+                print(f"Change detected in Gizzard Balance Difference")
+        
+        if changes:
+            print(f"Detected {len(changes)} difference changes")
+        else:
+            print("No changes detected in inventory balance differences")
+        return changes
+    except Exception as e:
+        print(f"Error detecting difference changes: {str(e)}")
+        raise APIError("Failed to compare difference states")
 
 def get_inventory_balance(service):
     """Fetch and calculate inventory balance from the inflow/release sheet."""
@@ -374,6 +428,42 @@ def calculate_total_pieces(stock_data):
     except Exception as e:
         print(f"Error calculating total pieces: {str(e)}")
         return None
+
+def calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_balance):
+    """Calculate current inventory balance differences."""
+    try:
+        differences = {}
+        
+        # Calculate whole chicken difference
+        total_pieces = calculate_total_pieces(stock_data)
+        if total_pieces is not None and inventory_balance is not None:
+            differences['whole_chicken_difference'] = int(total_pieces - inventory_balance)
+        else:
+            differences['whole_chicken_difference'] = None
+        
+        # Calculate gizzard difference
+        headers = stock_data[0]
+        values = stock_data[1]
+        current_gizzard_weight = 0
+        
+        for i in range(len(headers)):
+            if headers[i].lower() == 'gizzard':
+                try:
+                    current_gizzard_weight = float(values[i])
+                    break
+                except (ValueError, TypeError):
+                    current_gizzard_weight = 0
+                    break
+        
+        if current_gizzard_weight > 0 and gizzard_inventory_balance is not None:
+            differences['gizzard_difference'] = current_gizzard_weight - gizzard_inventory_balance
+        else:
+            differences['gizzard_difference'] = None
+        
+        return differences
+    except Exception as e:
+        print(f"Error calculating current differences: {str(e)}")
+        return {}
 
 def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizzard_inventory_balance=None):
     """Format the stock section of the alert message."""
@@ -570,25 +660,40 @@ def format_parts_section(parts_changes, parts_data):
     
     return section
 
-def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None, gizzard_inventory_balance=None):
+def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None, gizzard_inventory_balance=None, difference_changes=None):
     """Send combined alert to Google Space."""
     try:
         # Only proceed if there are actual changes
-        if not stock_changes and not parts_changes:
-            print("No changes detected in either stock or parts. No alert needed.")
+        if not stock_changes and not parts_changes and not difference_changes:
+            print("No changes detected in stock, parts, or differences. No alert needed.")
             return True
         
         message = "🔔 *Kaduna Inventory Changes Detected*\n\n"
         print("Preparing combined changes message")
         
-        # Add stock section if there are stock changes or if parts had changes
-        if stock_changes or parts_changes:
-            message += format_stock_section(stock_changes, stock_data, inventory_balance, gizzard_inventory_balance)
+        # Add difference changes section if there are difference changes
+        if difference_changes:
+            message += "*Inventory Balance Difference Changes:*\n"
+            for change_type, old_val, new_val in difference_changes:
+                if 'Chicken' in change_type:
+                    # Format whole chicken differences as pieces
+                    old_suffix = " piece" if abs(old_val) == 1 else " pieces"
+                    new_suffix = " piece" if abs(new_val) == 1 else " pieces"
+                    old_val_str = f"{old_val:,}{old_suffix}"
+                    new_val_str = f"{new_val:,}{new_suffix}"
+                else:
+                    # Format gizzard differences as kg
+                    old_val_str = f"{old_val:,.2f} kg"
+                    new_val_str = f"{new_val:,.2f} kg"
+                message += f"• {change_type}: {old_val_str} → {new_val_str}\n"
             message += "\n"
         
-        # Add parts section if there are parts changes or if stock had changes
-        if parts_changes or stock_changes:
-            message += format_parts_section(parts_changes, parts_data)
+        # Always add stock section (shows current balances regardless of what triggered alert)
+        message += format_stock_section(stock_changes, stock_data, inventory_balance, gizzard_inventory_balance)
+        message += "\n"
+        
+        # Always add parts section (shows current weights regardless of what triggered alert)
+        message += format_parts_section(parts_changes, parts_data)
         
         # Get current time in WAT
         wat_tz = pytz.timezone('Africa/Lagos')
@@ -635,10 +740,15 @@ def main():
         # Load previous states
         previous_stock_data = load_previous_state(STOCK_STATE_FILE)
         previous_parts_data = load_previous_state(PARTS_STATE_FILE)
+        previous_differences = load_previous_state(DIFFERENCES_STATE_FILE)
+        
+        # Calculate current differences
+        current_differences = calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_balance)
         
         # Initialize flags for state updates
         stock_state_needs_update = True
         parts_state_needs_update = True
+        differences_state_needs_update = True
         
         # Check for changes in stock data
         stock_changes = []
@@ -656,21 +766,31 @@ def main():
             print("Checking for parts changes...")
             parts_changes = detect_parts_changes(previous_parts_data, parts_data)
         
+        # Check for changes in inventory balance differences
+        difference_changes = []
+        if not previous_differences:
+            print("No previous differences state found, initializing differences state file...")
+        else:
+            print("Checking for difference changes...")
+            difference_changes = detect_difference_changes(previous_differences, current_differences)
+        
         # Send combined alert if there are any changes
-        if stock_changes or parts_changes:
+        if stock_changes or parts_changes or difference_changes:
             print("Changes detected, sending combined alert...")
-            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance, gizzard_inventory_balance):
+            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance, gizzard_inventory_balance, difference_changes):
                 print("Alert sent successfully, updating state files...")
             else:
                 print("Failed to send alert, but will still update state files...")
         else:
-            print("No changes detected in either stock or parts, updating state files...")
+            print("No changes detected in stock, parts, or differences, updating state files...")
         
-        # Always update both state files at the end
+        # Always update all state files at the end
         if stock_state_needs_update:
             save_current_state(stock_data, STOCK_STATE_FILE)
         if parts_state_needs_update:
             save_current_state(parts_data, PARTS_STATE_FILE)
+        if differences_state_needs_update:
+            save_current_state(current_differences, DIFFERENCES_STATE_FILE)
 
     except APIError as e:
         print(f"API Error: {str(e)}")
