@@ -475,6 +475,30 @@ def calculate_current_differences(stock_data, inventory_balance, gizzard_invento
         print(f"Error calculating current differences: {str(e)}")
         return None, None
 
+def get_weight_per_piece(category_name):
+    """Get weight per piece for a given category and whether it's an approximation."""
+    category_lower = category_name.lower()
+    
+    if 'below' in category_lower and '1kg' in category_lower:
+        return 0.7, True, "0.7kg/piece"
+    elif 'above' in category_lower and '2kg' in category_lower:
+        return 2.0, True, "2kg/piece"
+    elif 'uncategorised' in category_lower:
+        return 1.4, True, "1.4kg/piece"
+    else:
+        # Extract numeric weight from category name for exact categories
+        try:
+            # Handle categories like "1Kg", "1.1Kg", "1.2Kg", etc.
+            if 'kg' in category_lower:
+                weight_str = category_lower.replace('kg', '').strip()
+                weight = float(weight_str)
+                return weight, False, None
+        except (ValueError, TypeError):
+            pass
+    
+    # Default fallback (shouldn't happen with proper data)
+    return 1.0, True, "1kg/piece"
+
 def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizzard_inventory_balance=None):
     """Format the stock section of the alert message."""
     section = ""
@@ -533,6 +557,7 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizz
     values = stock_data[1]
     total_pieces = 0
     current_gizzard_weight = 0
+    total_weight_kg = 0
     
     for i in range(len(headers)):
         # Skip 'Specification' header if it exists
@@ -550,6 +575,7 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizz
                     # Handle weight values (in kg)
                     if str(val).strip().replace('.', '', 1).isdigit():
                         current_gizzard_weight = float(val)
+                        total_weight_kg += current_gizzard_weight
                         formatted_val = f"{current_gizzard_weight:,.2f} kg"
                     else:
                         formatted_val = str(val)
@@ -566,11 +592,30 @@ def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizz
                         pieces_text = "1 piece" if remaining_pieces == 1 else f"{remaining_pieces} pieces"
                         
                         if bags > 0 and remaining_pieces > 0:
-                            formatted_val = f"{bags_text}, {pieces_text}"
+                            base_formatted_val = f"{bags_text}, {pieces_text}"
                         elif bags > 0:
-                            formatted_val = bags_text
+                            base_formatted_val = bags_text
                         else:
-                            formatted_val = pieces_text
+                            base_formatted_val = pieces_text
+                        
+                        # Handle Total line differently - show accumulated total weight with tonnes
+                        if header.lower() == 'total':
+                            # For Total line, show bags/pieces with total weight in kg and tonnes
+                            total_tonnes = total_weight_kg / 1000
+                            formatted_val = f"{base_formatted_val} (≈ {total_weight_kg:,.1f} kg / {total_tonnes:.1f} tonnes)"
+                        else:
+                            # Calculate weight for this category
+                            weight_per_piece, is_approx, approx_text = get_weight_per_piece(header)
+                            total_weight = total_val * weight_per_piece
+                            total_weight_kg += total_weight
+                            
+                            # Format weight display
+                            if is_approx:
+                                weight_display = f"≈ {total_weight:,.1f} kg @ {approx_text}"
+                            else:
+                                weight_display = f"{total_weight:,.1f} kg"
+                            
+                            formatted_val = f"{base_formatted_val} ({weight_display})"
                     else:
                         formatted_val = str(val)
                 section += f"• {header}: {formatted_val}\n"
