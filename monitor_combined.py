@@ -1,18 +1,20 @@
 import os
 import json
 import pickle
+import random
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import requests
 from datetime import datetime
 import pytz
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Constants for Stock Balance
 SPECIFICATION_SHEET_ID = os.environ.get('SPECIFICATION_SHEET_ID')
-INVENTORY_SHEET_ID = os.environ.get('INVENTORY_SHEET_ID')
+INVENTORY_SHEET_ID = os.environ.get('INVENTORY_ETL_SPREADSHEET_ID')
 if not INVENTORY_SHEET_ID:
-    raise ValueError("INVENTORY_SHEET_ID environment variable not set")
+    raise ValueError("INVENTORY_ETL_SPREADSHEET_ID environment variable not set")
 if not SPECIFICATION_SHEET_ID:
     raise ValueError("SPECIFICATION_SHEET_ID environment variable not set")
     
@@ -42,6 +44,32 @@ class APIError(Exception):
     """Custom exception for API related errors."""
     pass
 
+def is_rate_limit_error(exception):
+    """Check if the exception is a rate limit error"""
+    if isinstance(exception, HttpError):
+        return exception.resp.status in [429, 500, 502, 503]
+    if isinstance(exception, Exception):
+        error_str = str(exception).lower()
+        return any(term in error_str for term in ['quota', 'rate limit', 'too many requests', '429'])
+    return False
+
+@retry(
+    retry=retry_if_exception_type((HttpError, Exception)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=30),
+    before_sleep=lambda retry_state: print(f"Rate limit hit, retrying in {retry_state.next_action.sleep} seconds... (attempt {retry_state.attempt_number})")
+)
+def robust_api_call(api_func, *args, **kwargs):
+    """Execute API call with robust retry logic"""
+    try:
+        return api_func(*args, **kwargs)
+    except Exception as e:
+        if is_rate_limit_error(e):
+            # Add jitter to prevent thundering herd
+            import time
+            time.sleep(random.uniform(0.5, 2.0))
+        raise
+
 def get_service():
     """Create and return Google Sheets service object."""
     try:
@@ -56,12 +84,15 @@ def get_sheet_data(service, sheet_name, range_name):
     """Fetch data from Google Sheet."""
     print(f"Fetching data from sheet {sheet_name}...")
     try:
-        sheet = service.spreadsheets()
-        result = sheet.values().get(
-            spreadsheetId=SPECIFICATION_SHEET_ID,
-            range=f'{sheet_name}!{range_name}'
-        ).execute()
-        data = result.get('values', [])
+        def _fetch_data():
+            sheet = service.spreadsheets()
+            result = sheet.values().get(
+                spreadsheetId=SPECIFICATION_SHEET_ID,
+                range=f'{sheet_name}!{range_name}'
+            ).execute()
+            return result.get('values', [])
+        
+        data = robust_api_call(_fetch_data)
         
         # Validate data structure
         min_rows = 2  # Both stock and parts sheets now have 2 rows
@@ -299,12 +330,14 @@ def detect_gizzard_difference_changes(previous_gizzard_diff, current_gizzard_dif
 def get_inventory_balance(service):
     """Fetch and calculate inventory balance from the inflow/release sheet."""
     try:
-        result = service.spreadsheets().values().get(
-            spreadsheetId=INVENTORY_SHEET_ID,
-            range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
-        ).execute()
+        def _fetch_inventory_data():
+            result = service.spreadsheets().values().get(
+                spreadsheetId=INVENTORY_SHEET_ID,
+                range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
+            ).execute()
+            return result.get('values', [])
         
-        data = result.get('values', [])
+        data = robust_api_call(_fetch_inventory_data)
         if not data:
             print("No data found in inventory sheet")
             return None
@@ -362,12 +395,14 @@ def get_inventory_balance(service):
 def get_gizzard_inventory_balance(service):
     """Fetch and calculate gizzard weight balance from the inventory sheet."""
     try:
-        result = service.spreadsheets().values().get(
-            spreadsheetId=INVENTORY_SHEET_ID,
-            range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
-        ).execute()
+        def _fetch_gizzard_data():
+            result = service.spreadsheets().values().get(
+                spreadsheetId=INVENTORY_SHEET_ID,
+                range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
+            ).execute()
+            return result.get('values', [])
         
-        data = result.get('values', [])
+        data = robust_api_call(_fetch_gizzard_data)
         if not data:
             print("No data found in inventory sheet for gizzard")
             return None
@@ -765,10 +800,14 @@ def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, p
             "text": message
         }
         
-        print("Sending webhook request...")
-        response = requests.post(webhook_url, json=payload, timeout=10)  # Add timeout
-        response.raise_for_status()  # Raise exception for bad status codes
-        print(f"Webhook response status: {response.status_code}")
+        def _send_webhook():
+            print("Sending webhook request...")
+            response = requests.post(webhook_url, json=payload, timeout=10)
+            response.raise_for_status()  # Raise exception for bad status codes
+            print(f"Webhook response status: {response.status_code}")
+            return response
+        
+        robust_api_call(_send_webhook)
         return True
     except requests.exceptions.RequestException as e:
         print(f"Error sending alert to Google Space: {str(e)}")
