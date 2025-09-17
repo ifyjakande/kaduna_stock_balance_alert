@@ -18,7 +18,7 @@ jobs:
         python-version: '3.12'
     
     - name: Cache state files with retry
-      uses: Wandalen/wretry.action@v4
+      uses: Wandalen/wretry.action@v3
       with:
         attempt_limit: 3
         attempt_delay: 5000  # 5 seconds between attempts
