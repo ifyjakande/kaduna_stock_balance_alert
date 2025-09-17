@@ -68,6 +68,49 @@ jobs:
         python monitor_combined.py
         echo "Monitoring completed"
 
+    - name: Check for failed webhooks and send email alert
+      if: always()
+      run: |
+        if [ -f "failed_webhooks.json" ] && [ -s "failed_webhooks.json" ]; then
+          echo "Failed webhooks detected. Preparing email alert..."
+          FAILED_COUNT=$(wc -l < failed_webhooks.json)
+          echo "FAILED_WEBHOOK_COUNT=$FAILED_COUNT" >> $GITHUB_ENV
+          echo "FAILED_WEBHOOK_ALERT=true" >> $GITHUB_ENV
+          echo "📧 Email alert will be sent for $FAILED_COUNT failed webhook(s)"
+
+          # Create detailed email body with failed webhook details
+          echo "Failed webhook notifications detected in Kaduna inventory monitoring system." > email_body.txt
+          echo "" >> email_body.txt
+          echo "Number of failed webhooks: $FAILED_COUNT" >> email_body.txt
+          echo "Run ID: ${{ github.run_number }}" >> email_body.txt
+          echo "Time: $(date -u)" >> email_body.txt
+          echo "" >> email_body.txt
+          echo "Failed webhook details:" >> email_body.txt
+          echo "========================" >> email_body.txt
+          cat failed_webhooks.json >> email_body.txt
+          echo "" >> email_body.txt
+          echo "Please check the failed webhooks artifact for details:" >> email_body.txt
+          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> email_body.txt
+          echo "" >> email_body.txt
+          echo "This means inventory change notifications may not have been delivered to your Google Space." >> email_body.txt
+        else
+          echo "No failed webhooks found"
+          echo "FAILED_WEBHOOK_ALERT=false" >> $GITHUB_ENV
+        fi
+
+    - name: Send email alert for failed webhooks
+      if: always() && env.FAILED_WEBHOOK_ALERT == 'true'
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "🚨 Kaduna Inventory: Failed Webhook Alert (${{ env.FAILED_WEBHOOK_COUNT }} failures)"
+        to: ${{ secrets.EMAIL_RECIPIENTS }}
+        from: ${{ secrets.EMAIL_SENDER }}
+        body: file://email_body.txt
+
     - name: Upload failed webhooks as artifact
       if: always()
       uses: actions/upload-artifact@v4
