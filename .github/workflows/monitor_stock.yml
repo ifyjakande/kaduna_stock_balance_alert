@@ -25,6 +25,7 @@ jobs:
           previous_parts_state.pickle
           previous_whole_chicken_diff_state.pickle
           previous_gizzard_diff_state.pickle
+          failed_webhooks.json
         key: inventory-state-v4-${{ github.run_number }}
         restore-keys: |
           inventory-state-v4-
@@ -65,4 +66,13 @@ jobs:
       run: |
         echo "Starting inventory monitoring..."
         python monitor_combined.py
-        echo "Monitoring completed" 
+        echo "Monitoring completed"
+
+    - name: Upload failed webhooks as artifact
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: failed-webhooks-${{ github.run_number }}
+        path: failed_webhooks.json
+        if-no-files-found: ignore
+        retention-days: 30 
