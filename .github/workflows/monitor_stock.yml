@@ -17,12 +17,13 @@ jobs:
       with:
         python-version: '3.12'
     
-    - name: Cache state files with retry
+    - name: Restore cache with retry
+      id: cache-restore
       uses: Wandalen/wretry.action@v3
       with:
         attempt_limit: 3
         attempt_delay: 5000  # 5 seconds between attempts
-        action: actions/cache@v4
+        action: actions/cache/restore@v4
         with: |
           path: |
             previous_stock_state.pickle
@@ -82,6 +83,18 @@ jobs:
         python monitor_combined.py
         echo "Monitoring completed"
 
+    - name: Save cache
+      if: always()
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          previous_stock_state.pickle
+          previous_parts_state.pickle
+          previous_whole_chicken_diff_state.pickle
+          previous_gizzard_diff_state.pickle
+          failed_webhooks.json
+          cache_miss_alert.json
+        key: inventory-state-v4-${{ github.run_number }}
 
     - name: Check for failed webhooks and cache miss alerts
       if: always()
