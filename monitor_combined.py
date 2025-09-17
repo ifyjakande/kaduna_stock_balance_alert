@@ -41,6 +41,7 @@ PARTS_STATE_FILE = os.path.join(DATA_DIR, 'previous_parts_state.pickle')
 WHOLE_CHICKEN_DIFF_STATE_FILE = os.path.join(DATA_DIR, 'previous_whole_chicken_diff_state.pickle')
 GIZZARD_DIFF_STATE_FILE = os.path.join(DATA_DIR, 'previous_gizzard_diff_state.pickle')
 FAILED_WEBHOOKS_FILE = os.path.join(DATA_DIR, 'failed_webhooks.json')
+CACHE_MISS_ALERT_FILE = os.path.join(DATA_DIR, 'cache_miss_alert.json')
 
 # Circuit breaker for webhook calls
 webhook_circuit_breaker = pybreaker.CircuitBreaker(
@@ -121,6 +122,46 @@ def check_failed_webhooks():
 
     except Exception as e:
         print(f"Error checking failed webhooks: {str(e)}")
+
+def detect_cache_miss():
+    """Detect if this is a cache miss (no previous state files found)"""
+    state_files = [
+        (STOCK_STATE_FILE, "stock state"),
+        (PARTS_STATE_FILE, "parts state"),
+        (WHOLE_CHICKEN_DIFF_STATE_FILE, "whole chicken difference state"),
+        (GIZZARD_DIFF_STATE_FILE, "gizzard difference state")
+    ]
+
+    missing_files = []
+    for file_path, description in state_files:
+        if not os.path.exists(file_path):
+            missing_files.append(description)
+
+    # Consider it a cache miss if all or most state files are missing
+    if len(missing_files) >= 3:  # If 3 or more state files are missing
+        return True, missing_files
+
+    return False, []
+
+def save_cache_miss_alert():
+    """Save cache miss alert details for email notification"""
+    try:
+        cache_miss_data = {
+            'timestamp': datetime.now(pytz.UTC).astimezone(pytz.timezone('Africa/Lagos')).isoformat(),
+            'event': 'cache_miss_detected',
+            'message': 'Cache miss detected - monitoring system cannot detect changes for this run',
+            'impact': 'No inventory change alerts will be sent for this monitoring cycle',
+            'action_required': 'Review GitHub Actions cache and retry mechanisms'
+        }
+
+        with open(CACHE_MISS_ALERT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cache_miss_data, f, ensure_ascii=False, indent=2)
+
+        print(f"Cache miss alert saved to: {CACHE_MISS_ALERT_FILE}")
+        return True
+    except Exception as e:
+        print(f"Error saving cache miss alert: {str(e)}")
+        return False
 
 @retry(
     retry=retry_if_exception_type((HttpError, Exception)),
@@ -912,6 +953,15 @@ def main():
 
         # Check for any previously failed webhooks
         check_failed_webhooks()
+
+        # Check for cache miss and send alert if detected
+        is_cache_miss, missing_files = detect_cache_miss()
+        if is_cache_miss:
+            print(f"🚨 Cache miss detected! Missing state files: {', '.join(missing_files)}")
+            print("This means the monitoring system cannot detect changes for this run.")
+            save_cache_miss_alert()
+        else:
+            print("✅ Previous state files found - change detection will work normally")
 
         # Initialize the Sheets API service
         print("Initializing Google Sheets service...")

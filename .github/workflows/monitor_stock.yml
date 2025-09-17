@@ -17,18 +17,23 @@ jobs:
       with:
         python-version: '3.12'
     
-    - name: Cache state files
-      uses: actions/cache@v4
+    - name: Cache state files with retry
+      uses: Wandalen/wretry.action@v4
       with:
-        path: |
-          previous_stock_state.pickle
-          previous_parts_state.pickle
-          previous_whole_chicken_diff_state.pickle
-          previous_gizzard_diff_state.pickle
-          failed_webhooks.json
-        key: inventory-state-v4-${{ github.run_number }}
-        restore-keys: |
-          inventory-state-v4-
+        attempt_limit: 3
+        attempt_delay: 5000  # 5 seconds between attempts
+        action: actions/cache@v4
+        with: |
+          path: |
+            previous_stock_state.pickle
+            previous_parts_state.pickle
+            previous_whole_chicken_diff_state.pickle
+            previous_gizzard_diff_state.pickle
+            failed_webhooks.json
+            cache_miss_alert.json
+          key: inventory-state-v4-${{ github.run_number }}
+          restore-keys: |
+            inventory-state-v4-
     
     - name: Install dependencies
       run: |
@@ -78,9 +83,14 @@ jobs:
         echo "Monitoring completed"
 
 
-    - name: Check for failed webhooks and send email alert
+    - name: Check for failed webhooks and cache miss alerts
       if: always()
       run: |
+        # Initialize alert flags
+        echo "FAILED_WEBHOOK_ALERT=false" >> $GITHUB_ENV
+        echo "CACHE_MISS_ALERT=false" >> $GITHUB_ENV
+
+        # Check for failed webhooks
         if [ -f "failed_webhooks.json" ] && [ -s "failed_webhooks.json" ]; then
           echo "Failed webhooks detected. Preparing email alert..."
           FAILED_COUNT=$(wc -l < failed_webhooks.json)
@@ -105,7 +115,36 @@ jobs:
           echo "This means inventory change notifications may not have been delivered to your Google Space." >> email_body.txt
         else
           echo "No failed webhooks found"
-          echo "FAILED_WEBHOOK_ALERT=false" >> $GITHUB_ENV
+        fi
+
+        # Check for cache miss alerts
+        if [ -f "cache_miss_alert.json" ] && [ -s "cache_miss_alert.json" ]; then
+          echo "Cache miss detected. Preparing email alert..."
+          echo "CACHE_MISS_ALERT=true" >> $GITHUB_ENV
+          echo "📧 Email alert will be sent for cache miss"
+
+          # Create cache miss email body
+          echo "Cache miss detected in Kaduna inventory monitoring system." > cache_miss_email_body.txt
+          echo "" >> cache_miss_email_body.txt
+          echo "Run ID: ${{ github.run_number }}" >> cache_miss_email_body.txt
+          echo "Time: $(date -u)" >> cache_miss_email_body.txt
+          echo "" >> cache_miss_email_body.txt
+          echo "Issue: The monitoring system could not retrieve previous state files from GitHub Actions cache." >> cache_miss_email_body.txt
+          echo "Impact: No inventory change detection could be performed for this monitoring cycle." >> cache_miss_email_body.txt
+          echo "" >> cache_miss_email_body.txt
+          echo "Details:" >> cache_miss_email_body.txt
+          echo "========" >> cache_miss_email_body.txt
+          cat cache_miss_alert.json >> cache_miss_email_body.txt
+          echo "" >> cache_miss_email_body.txt
+          echo "Action Required:" >> cache_miss_email_body.txt
+          echo "- Check GitHub Actions cache status" >> cache_miss_email_body.txt
+          echo "- Verify the retry mechanism is working" >> cache_miss_email_body.txt
+          echo "- Monitor subsequent runs to ensure cache is restored" >> cache_miss_email_body.txt
+          echo "" >> cache_miss_email_body.txt
+          echo "Workflow Details:" >> cache_miss_email_body.txt
+          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> cache_miss_email_body.txt
+        else
+          echo "No cache miss detected"
         fi
 
     - name: Send email alert for failed webhooks
@@ -121,11 +160,33 @@ jobs:
         from: ${{ secrets.EMAIL_SENDER }}
         body: file://email_body.txt
 
+    - name: Send email alert for cache miss
+      if: always() && env.CACHE_MISS_ALERT == 'true'
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "⚠️ Kaduna Inventory: Cache Miss Alert - Monitoring Disabled"
+        to: ${{ secrets.EMAIL_RECIPIENTS }}
+        from: ${{ secrets.EMAIL_SENDER }}
+        body: file://cache_miss_email_body.txt
+
     - name: Upload failed webhooks as artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: failed-webhooks-${{ github.run_number }}
         path: failed_webhooks.json
+        if-no-files-found: ignore
+        retention-days: 30
+
+    - name: Upload cache miss alert as artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cache-miss-alert-${{ github.run_number }}
+        path: cache_miss_alert.json
         if-no-files-found: ignore
         retention-days: 30 
