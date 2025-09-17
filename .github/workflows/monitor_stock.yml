@@ -16,7 +16,13 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.12'
-    
+
+    - name: Calculate previous run number
+      env:
+        NUM: ${{ github.run_number }}
+      run: |
+        echo "PREVIOUS_RUN_NUMBER=$(($NUM - 1))" >> $GITHUB_ENV
+
     - name: Restore cache with retry
       id: cache-restore
       uses: Wandalen/wretry.action@v3
@@ -34,7 +40,7 @@ jobs:
             cache_miss_alert.json
           key: inventory-state-v4-${{ github.run_number }}
           restore-keys: |
-            inventory-state-v4-${{ github.run_number == 1 && 1 || github.run_number - 1 }}
+            inventory-state-v4-${{ env.PREVIOUS_RUN_NUMBER }}
     
     - name: Install dependencies
       run: |
