@@ -62,10 +62,11 @@ def get_credentials(credentials_file: str) -> service_account.Credentials:
 
 def connect_to_sheets(credentials: service_account.Credentials, spreadsheet_id: str) -> gspread.Spreadsheet:
     max_retries = 3
-    
+
     for attempt in range(max_retries):
         try:
-            gc = gspread.authorize(credentials)
+            # Use the newer approach to avoid deprecation warning
+            gc = gspread.Client(auth=credentials)
             return gc.open_by_key(spreadsheet_id)
         except Exception as e:
             if attempt < max_retries - 1 and "500" in str(e):
