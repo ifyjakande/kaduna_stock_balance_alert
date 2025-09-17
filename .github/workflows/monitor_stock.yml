@@ -34,7 +34,7 @@ jobs:
             cache_miss_alert.json
           key: inventory-state-v4-${{ github.run_number }}
           restore-keys: |
-            inventory-state-v4-
+            inventory-state-v4-${{ github.run_number == 1 && 1 || github.run_number - 1 }}
     
     - name: Install dependencies
       run: |
