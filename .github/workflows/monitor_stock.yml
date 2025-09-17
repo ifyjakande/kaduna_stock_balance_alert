@@ -17,31 +17,6 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: Calculate previous run number
-      env:
-        NUM: ${{ github.run_number }}
-      run: |
-        echo "PREVIOUS_RUN_NUMBER=$(($NUM - 1))" >> $GITHUB_ENV
-
-    - name: Restore cache with retry
-      id: cache-restore
-      uses: Wandalen/wretry.action@v3
-      with:
-        attempt_limit: 3
-        attempt_delay: 5000  # 5 seconds between attempts
-        action: actions/cache/restore@v4
-        with: |
-          path: |
-            previous_stock_state.pickle
-            previous_parts_state.pickle
-            previous_whole_chicken_diff_state.pickle
-            previous_gizzard_diff_state.pickle
-            failed_webhooks.json
-            cache_miss_alert.json
-          key: inventory-state-v4-${{ github.run_number }}
-          restore-keys: |
-            inventory-state-v4-${{ env.PREVIOUS_RUN_NUMBER }}
-    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -83,87 +58,112 @@ jobs:
         SPACE_WEBHOOK_URL: ${{ secrets.SPACE_WEBHOOK_URL }}
         SPECIFICATION_SHEET_ID: ${{ secrets.SPECIFICATION_SHEET_ID }}
         INVENTORY_ETL_SPREADSHEET_ID: ${{ secrets.INVENTORY_ETL_SPREADSHEET_ID }}
+        STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         ACTIONS_STEP_DEBUG: false
       run: |
         echo "Starting inventory monitoring..."
         python monitor_combined.py
         echo "Monitoring completed"
 
-    - name: Save cache
+    - name: Check for failed webhooks and state read failure alerts
       if: always()
-      uses: actions/cache/save@v4
-      with:
-        path: |
-          previous_stock_state.pickle
-          previous_parts_state.pickle
-          previous_whole_chicken_diff_state.pickle
-          previous_gizzard_diff_state.pickle
-          failed_webhooks.json
-          cache_miss_alert.json
-        key: inventory-state-v4-${{ github.run_number }}
-
-    - name: Check for failed webhooks and cache miss alerts
-      if: always()
+      env:
+        STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
       run: |
         # Initialize alert flags
         echo "FAILED_WEBHOOK_ALERT=false" >> $GITHUB_ENV
-        echo "CACHE_MISS_ALERT=false" >> $GITHUB_ENV
+        echo "STATE_READ_FAILURE_ALERT=false" >> $GITHUB_ENV
 
-        # Check for failed webhooks
-        if [ -f "failed_webhooks.json" ] && [ -s "failed_webhooks.json" ]; then
-          echo "Failed webhooks detected. Preparing email alert..."
-          FAILED_COUNT=$(wc -l < failed_webhooks.json)
-          echo "FAILED_WEBHOOK_COUNT=$FAILED_COUNT" >> $GITHUB_ENV
-          echo "FAILED_WEBHOOK_ALERT=true" >> $GITHUB_ENV
-          echo "📧 Email alert will be sent for $FAILED_COUNT failed webhook(s)"
+        # Check for failed webhooks (encrypted)
+        if [ -f "encrypted_states/failed_webhooks.enc" ] && [ -s "encrypted_states/failed_webhooks.enc" ]; then
+          echo "Checking encrypted failed webhooks..."
 
-          # Create detailed email body with failed webhook details
-          echo "Failed webhook notifications detected in Kaduna inventory monitoring system." > email_body.txt
-          echo "" >> email_body.txt
-          echo "Number of failed webhooks: $FAILED_COUNT" >> email_body.txt
-          echo "Run ID: ${{ github.run_number }}" >> email_body.txt
-          echo "Time: $(date -u)" >> email_body.txt
-          echo "" >> email_body.txt
-          echo "Failed webhook details:" >> email_body.txt
-          echo "========================" >> email_body.txt
-          cat failed_webhooks.json >> email_body.txt
-          echo "" >> email_body.txt
-          echo "Please check the failed webhooks artifact for details:" >> email_body.txt
-          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> email_body.txt
-          echo "" >> email_body.txt
-          echo "This means inventory change notifications may not have been delivered to your Google Space." >> email_body.txt
+          # Use Python to decrypt and count failed webhooks
+          WEBHOOK_CHECK_RESULT=$(python3 -c "
+import os
+from cryptography.fernet import Fernet
+import pickle
+
+try:
+    key = os.environ['STATE_ENCRYPTION_KEY'].encode()
+    fernet = Fernet(key)
+
+    with open('encrypted_states/failed_webhooks.enc', 'rb') as f:
+        encrypted_data = f.read()
+        failed_webhooks = pickle.loads(fernet.decrypt(encrypted_data))
+
+    if isinstance(failed_webhooks, list) and len(failed_webhooks) > 0:
+        print(f'FOUND:{len(failed_webhooks)}')
+        # Create readable output for email
+        with open('failed_webhooks_readable.txt', 'w') as f:
+            for webhook in failed_webhooks:
+                f.write(f\"Timestamp: {webhook.get('timestamp', 'Unknown')}\\n\")
+                f.write(f\"Error: {webhook.get('error', 'Unknown')}\\n\")
+                f.write(f\"Attempts: {webhook.get('attempts', 'Unknown')}\\n\")
+                f.write('---\\n')
+    else:
+        print('NONE')
+except Exception as e:
+    print(f'ERROR:{str(e)}')
+")
+
+          if [[ "$WEBHOOK_CHECK_RESULT" == FOUND:* ]]; then
+            FAILED_COUNT=$(echo "$WEBHOOK_CHECK_RESULT" | cut -d: -f2)
+            echo "FAILED_WEBHOOK_COUNT=$FAILED_COUNT" >> $GITHUB_ENV
+            echo "FAILED_WEBHOOK_ALERT=true" >> $GITHUB_ENV
+            echo "📧 Email alert will be sent for $FAILED_COUNT failed webhook(s)"
+
+            # Create detailed email body with failed webhook details
+            echo "Failed webhook notifications detected in Kaduna inventory monitoring system." > email_body.txt
+            echo "" >> email_body.txt
+            echo "Number of failed webhooks: $FAILED_COUNT" >> email_body.txt
+            echo "Run ID: ${{ github.run_number }}" >> email_body.txt
+            echo "Time: $(date -u)" >> email_body.txt
+            echo "" >> email_body.txt
+            echo "Failed webhook details:" >> email_body.txt
+            echo "========================" >> email_body.txt
+            if [ -f "failed_webhooks_readable.txt" ]; then
+              cat failed_webhooks_readable.txt >> email_body.txt
+            fi
+            echo "" >> email_body.txt
+            echo "This means inventory change notifications may not have been delivered to your Google Space." >> email_body.txt
+          elif [[ "$WEBHOOK_CHECK_RESULT" == ERROR:* ]]; then
+            echo "⚠️ Error checking failed webhooks: $WEBHOOK_CHECK_RESULT"
+          else
+            echo "No failed webhooks found"
+          fi
         else
-          echo "No failed webhooks found"
+          echo "No encrypted failed webhooks file found"
         fi
 
-        # Check for cache miss alerts
-        if [ -f "cache_miss_alert.json" ] && [ -s "cache_miss_alert.json" ]; then
-          echo "Cache miss detected. Preparing email alert..."
-          echo "CACHE_MISS_ALERT=true" >> $GITHUB_ENV
-          echo "📧 Email alert will be sent for cache miss"
+        # Check for state read failure alerts
+        if [ -f "encrypted_states/state_read_failure_alert.json" ] && [ -s "encrypted_states/state_read_failure_alert.json" ]; then
+          echo "State read failure detected. Preparing email alert..."
+          echo "STATE_READ_FAILURE_ALERT=true" >> $GITHUB_ENV
+          echo "📧 Email alert will be sent for state read failure"
 
-          # Create cache miss email body
-          echo "Cache miss detected in Kaduna inventory monitoring system." > cache_miss_email_body.txt
-          echo "" >> cache_miss_email_body.txt
-          echo "Run ID: ${{ github.run_number }}" >> cache_miss_email_body.txt
-          echo "Time: $(date -u)" >> cache_miss_email_body.txt
-          echo "" >> cache_miss_email_body.txt
-          echo "Issue: The monitoring system could not retrieve previous state files from GitHub Actions cache." >> cache_miss_email_body.txt
-          echo "Impact: No inventory change detection could be performed for this monitoring cycle." >> cache_miss_email_body.txt
-          echo "" >> cache_miss_email_body.txt
-          echo "Details:" >> cache_miss_email_body.txt
-          echo "========" >> cache_miss_email_body.txt
-          cat cache_miss_alert.json >> cache_miss_email_body.txt
-          echo "" >> cache_miss_email_body.txt
-          echo "Action Required:" >> cache_miss_email_body.txt
-          echo "- Check GitHub Actions cache status" >> cache_miss_email_body.txt
-          echo "- Verify the retry mechanism is working" >> cache_miss_email_body.txt
-          echo "- Monitor subsequent runs to ensure cache is restored" >> cache_miss_email_body.txt
-          echo "" >> cache_miss_email_body.txt
-          echo "Workflow Details:" >> cache_miss_email_body.txt
-          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> cache_miss_email_body.txt
+          # Create state read failure email body
+          echo "State read failure detected in Kaduna inventory monitoring system." > state_read_failure_email_body.txt
+          echo "" >> state_read_failure_email_body.txt
+          echo "Run ID: ${{ github.run_number }}" >> state_read_failure_email_body.txt
+          echo "Time: $(date -u)" >> state_read_failure_email_body.txt
+          echo "" >> state_read_failure_email_body.txt
+          echo "Issue: The monitoring system could not read/decrypt encrypted state files." >> state_read_failure_email_body.txt
+          echo "Impact: No inventory change detection could be performed for this monitoring cycle." >> state_read_failure_email_body.txt
+          echo "" >> state_read_failure_email_body.txt
+          echo "Details:" >> state_read_failure_email_body.txt
+          echo "========" >> state_read_failure_email_body.txt
+          cat encrypted_states/state_read_failure_alert.json >> state_read_failure_email_body.txt
+          echo "" >> state_read_failure_email_body.txt
+          echo "Action Required:" >> state_read_failure_email_body.txt
+          echo "- Check STATE_ENCRYPTION_KEY secret" >> state_read_failure_email_body.txt
+          echo "- Verify encrypted state files are not corrupted" >> state_read_failure_email_body.txt
+          echo "- Check for any changes to encryption implementation" >> state_read_failure_email_body.txt
+          echo "" >> state_read_failure_email_body.txt
+          echo "Workflow Details:" >> state_read_failure_email_body.txt
+          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> state_read_failure_email_body.txt
         else
-          echo "No cache miss detected"
+          echo "No state read failure detected"
         fi
 
     - name: Send email alert for failed webhooks
@@ -179,33 +179,17 @@ jobs:
         from: ${{ secrets.EMAIL_SENDER }}
         body: file://email_body.txt
 
-    - name: Send email alert for cache miss
-      if: always() && env.CACHE_MISS_ALERT == 'true'
+    - name: Send email alert for state read failure
+      if: always() && env.STATE_READ_FAILURE_ALERT == 'true'
       uses: dawidd6/action-send-mail@v3
       with:
         server_address: smtp.gmail.com
         server_port: 587
         username: ${{ secrets.EMAIL_USERNAME }}
         password: ${{ secrets.EMAIL_PASSWORD }}
-        subject: "⚠️ Kaduna Inventory: Cache Miss Alert - Monitoring Disabled"
+        subject: "🔐 Kaduna Inventory: State Read Failure - Encryption Issue"
         to: ${{ secrets.EMAIL_RECIPIENTS }}
         from: ${{ secrets.EMAIL_SENDER }}
-        body: file://cache_miss_email_body.txt
+        body: file://state_read_failure_email_body.txt
 
-    - name: Upload failed webhooks as artifact
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: failed-webhooks-${{ github.run_number }}
-        path: failed_webhooks.json
-        if-no-files-found: ignore
-        retention-days: 30
-
-    - name: Upload cache miss alert as artifact
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: cache-miss-alert-${{ github.run_number }}
-        path: cache_miss_alert.json
-        if-no-files-found: ignore
-        retention-days: 30 
+ 

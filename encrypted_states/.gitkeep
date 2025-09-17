@@ -1,0 +1,2 @@
+# This file ensures the encrypted_states directory is tracked by git
+# Encrypted state files will be stored here

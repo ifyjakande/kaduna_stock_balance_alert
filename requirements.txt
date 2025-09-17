@@ -6,4 +6,5 @@ pytz==2024.1
 pandas==2.2.3
 gspread==5.12.0
 tenacity==8.2.3
-pybreaker==1.0.2 
+pybreaker==1.0.2
+cryptography==41.0.7 
