@@ -18,7 +18,7 @@ jobs:
         python-version: '3.12'
     
     - name: Cache state files
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           previous_stock_state.pickle
@@ -70,7 +70,7 @@ jobs:
 
     - name: Upload failed webhooks as artifact
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: failed-webhooks-${{ github.run_number }}
         path: failed_webhooks.json
