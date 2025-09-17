@@ -954,6 +954,10 @@ def main():
         # Check for any previously failed webhooks
         check_failed_webhooks()
 
+        # Clear any previous cache miss alert file first
+        if os.path.exists(CACHE_MISS_ALERT_FILE):
+            os.remove(CACHE_MISS_ALERT_FILE)
+
         # Check for cache miss and send alert if detected
         is_cache_miss, missing_files = detect_cache_miss()
         if is_cache_miss:
