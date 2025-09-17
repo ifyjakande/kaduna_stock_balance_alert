@@ -42,22 +42,31 @@ jobs:
         ACTIONS_STEP_DEBUG: false
     
     - name: Run data transformation
+      id: transformation
       env:
         INVENTORY_SHEET_ID: ${{ secrets.INVENTORY_SHEET_ID }}
         INVENTORY_ETL_SPREADSHEET_ID: ${{ secrets.INVENTORY_ETL_SPREADSHEET_ID }}
         ACTIONS_STEP_DEBUG: false
       run: |
         echo "Starting data transformation..."
-        python transformation.py
-        echo "Data transformation completed"
-    
+        if python transformation.py; then
+          echo "Data transformation completed successfully"
+          echo "TRANSFORMATION_SUCCESS=true" >> $GITHUB_ENV
+        else
+          echo "❌ Data transformation failed"
+          echo "TRANSFORMATION_SUCCESS=false" >> $GITHUB_ENV
+          exit 1
+        fi
+
     - name: Wait for data propagation
+      if: env.TRANSFORMATION_SUCCESS == 'true'
       run: |
         echo "Waiting 30 seconds for Google Sheets data propagation..."
         sleep 30
         echo "Proceeding with monitoring"
-    
+
     - name: Run monitoring script
+      if: env.TRANSFORMATION_SUCCESS == 'true'
       env:
         SPACE_WEBHOOK_URL: ${{ secrets.SPACE_WEBHOOK_URL }}
         SPECIFICATION_SHEET_ID: ${{ secrets.SPECIFICATION_SHEET_ID }}
@@ -67,6 +76,7 @@ jobs:
         echo "Starting inventory monitoring..."
         python monitor_combined.py
         echo "Monitoring completed"
+
 
     - name: Check for failed webhooks and send email alert
       if: always()
