@@ -5,12 +5,17 @@ on:
     - cron: '*/5 * * * *'  # Runs every 5 minutes
   workflow_dispatch:  # Allows manual triggering
 
+permissions:
+  contents: write  # Allow workflow to commit and push to repository
+
 jobs:
   process-and-monitor:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v4
