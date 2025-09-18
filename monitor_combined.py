@@ -115,8 +115,8 @@ def commit_encrypted_state_files():
         subprocess.run(['git', 'config', 'user.email', 'github-actions[bot]@users.noreply.github.com'],
                       cwd=DATA_DIR, check=True)
 
-        # Add encrypted state files
-        subprocess.run(['git', 'add', 'encrypted_states/'], cwd=DATA_DIR, check=True)
+        # Force add encrypted state files (despite being in .gitignore)
+        subprocess.run(['git', 'add', '-f', 'encrypted_states/'], cwd=DATA_DIR, check=True)
 
         # Check if there are changes to commit
         result = subprocess.run(['git', 'diff', '--cached', '--exit-code'],

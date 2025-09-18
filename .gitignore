@@ -46,6 +46,5 @@ Thumbs.db
 service-account.json
 pullus-pipeline-*.json
 
-# WARNING: encrypted_states/ files are managed by GitHub Actions ONLY
-# DO NOT commit these files from local development!
-# Pull latest changes and avoid staging these files manually 
+# Encrypted state files - ignored locally but force-added by GitHub Actions
+encrypted_states/ 
