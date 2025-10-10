@@ -70,6 +70,17 @@ jobs:
         python monitor_combined.py
         echo "Monitoring completed"
 
+    - name: Run cold room cost analysis
+      if: env.TRANSFORMATION_SUCCESS == 'true'
+      env:
+        INVENTORY_ETL_SPREADSHEET_ID: ${{ secrets.INVENTORY_ETL_SPREADSHEET_ID }}
+        COLD_ROOM_ANALYSIS_SPREADSHEET_ID: ${{ secrets.COLD_ROOM_ANALYSIS_SPREADSHEET_ID }}
+        ACTIONS_STEP_DEBUG: false
+      run: |
+        echo "Starting cold room cost analysis..."
+        python cold_room_cost.py
+        echo "Cold room cost analysis completed"
+
     - name: Check for failed webhooks and state read failure alerts
       if: always()
       env:
