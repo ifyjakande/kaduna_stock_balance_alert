@@ -453,7 +453,91 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 6. Apply number formatting with thousand separators to all numeric columns
+        # 6. Add borders to all cells (including average row)
+        requests.append({
+            'updateBorders': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': 0,
+                    'endRowIndex': num_rows + 2,  # Include average row
+                    'startColumnIndex': 0,
+                    'endColumnIndex': total_cols
+                },
+                'top': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}},
+                'bottom': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}},
+                'left': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}},
+                'right': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}}
+            }
+        })
+
+        # 7. Freeze header row
+        requests.append({
+            'updateSheetProperties': {
+                'properties': {
+                    'sheetId': sheet_id,
+                    'gridProperties': {
+                        'frozenRowCount': 1
+                    }
+                },
+                'fields': 'gridProperties.frozenRowCount'
+            }
+        })
+
+        # 8. Auto-resize all columns to fit content properly
+        requests.append({
+            'autoResizeDimensions': {
+                'dimensions': {
+                    'sheetId': sheet_id,
+                    'dimension': 'COLUMNS',
+                    'startIndex': 0,
+                    'endIndex': total_cols
+                }
+            }
+        })
+
+        # 9. Set minimum column widths to ensure readability
+        for col_index in range(total_cols):
+            requests.append({
+                'updateDimensionProperties': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'dimension': 'COLUMNS',
+                        'startIndex': col_index,
+                        'endIndex': col_index + 1
+                    },
+                    'properties': {
+                        'pixelSize': 130  # Minimum width for proper number display
+                    },
+                    'fields': 'pixelSize'
+                }
+            })
+
+        # Execute all visual formatting in one batch request
+        def _apply_formatting():
+            return service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+        robust_sheets_operation(_apply_formatting)
+        print(f"Visual formatting applied successfully to {sheet_name}")
+
+    except Exception as e:
+        print(f"Warning: Failed to apply formatting: {str(e)}")
+
+def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, report_type: str, num_rows: int):
+    """Apply number formatting with thousand separators as a separate operation"""
+    try:
+        print(f"Applying number formatting to {sheet_name}...")
+
+        sheet_id = get_sheet_id(service, spreadsheet_id, sheet_name)
+        if sheet_id is None:
+            print(f"Warning: Could not find sheet {sheet_name} for number formatting")
+            return
+
+        requests = []
+
+        # Apply number formatting with thousand separators to all numeric columns
         # Format: #,##0.000 (thousand separator with 3 decimal places)
         if report_type == 'whole_chicken':
             # Numeric columns B-J (indices 1-9) for data rows
@@ -584,78 +668,19 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 }
             })
 
-        # 7. Add borders to all cells (including average row)
-        requests.append({
-            'updateBorders': {
-                'range': {
-                    'sheetId': sheet_id,
-                    'startRowIndex': 0,
-                    'endRowIndex': num_rows + 2,  # Include average row
-                    'startColumnIndex': 0,
-                    'endColumnIndex': total_cols
-                },
-                'top': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}},
-                'bottom': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}},
-                'left': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}},
-                'right': {'style': 'SOLID', 'width': 1, 'color': {'red': 0.8, 'green': 0.8, 'blue': 0.8}}
-            }
-        })
+        # Execute number formatting as a separate batch request
+        if requests:
+            def _apply_number_formatting():
+                return service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={'requests': requests}
+                ).execute()
 
-        # 8. Freeze header row
-        requests.append({
-            'updateSheetProperties': {
-                'properties': {
-                    'sheetId': sheet_id,
-                    'gridProperties': {
-                        'frozenRowCount': 1
-                    }
-                },
-                'fields': 'gridProperties.frozenRowCount'
-            }
-        })
-
-        # 9. Auto-resize all columns to fit content properly
-        requests.append({
-            'autoResizeDimensions': {
-                'dimensions': {
-                    'sheetId': sheet_id,
-                    'dimension': 'COLUMNS',
-                    'startIndex': 0,
-                    'endIndex': total_cols
-                }
-            }
-        })
-
-        # 10. Set minimum column widths to ensure readability
-        # This ensures columns are wide enough to show formatted numbers with commas
-        for col_index in range(total_cols):
-            requests.append({
-                'updateDimensionProperties': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'dimension': 'COLUMNS',
-                        'startIndex': col_index,
-                        'endIndex': col_index + 1
-                    },
-                    'properties': {
-                        'pixelSize': 130  # Minimum width for proper number display
-                    },
-                    'fields': 'pixelSize'
-                }
-            })
-
-        # Execute all formatting in one batch request
-        def _apply_formatting():
-            return service.spreadsheets().batchUpdate(
-                spreadsheetId=spreadsheet_id,
-                body={'requests': requests}
-            ).execute()
-
-        robust_sheets_operation(_apply_formatting)
-        print(f"Formatting applied successfully to {sheet_name}")
+            robust_sheets_operation(_apply_number_formatting)
+            print(f"Number formatting applied successfully to {sheet_name}")
 
     except Exception as e:
-        print(f"Warning: Failed to apply formatting: {str(e)}")
+        print(f"Warning: Failed to apply number formatting: {str(e)}")
 
 def upload_df_to_gsheet(df: pd.DataFrame,
                        spreadsheet_id: str,
@@ -734,8 +759,12 @@ def upload_df_to_gsheet(df: pd.DataFrame,
         # Add formulas for calculated columns
         add_formulas_to_sheet(service, spreadsheet_id, sheet_name, report_type, num_rows)
 
-        # Apply formatting
+        # Apply visual formatting (colors, borders, etc.)
         format_sheet(service, spreadsheet_id, sheet_name, report_type, num_rows)
+
+        # Apply number formatting as a SEPARATE operation AFTER all data and visual formatting
+        # This ensures Google Sheets has fully processed the numeric values
+        apply_number_formatting(service, spreadsheet_id, sheet_name, report_type, num_rows)
 
         return True
 
