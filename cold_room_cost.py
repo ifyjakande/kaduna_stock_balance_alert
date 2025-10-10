@@ -266,16 +266,16 @@ def add_formulas_to_sheet(service: Any, spreadsheet_id: str, sheet_name: str, re
         avg_row = num_rows + 2  # Average row comes after all data rows
 
         if report_type == 'whole_chicken':
-            # COST/BIRD = TOTAL COST / BIRD STORED (column M = L/I)
-            # COST/KG = TOTAL COST / WEIGHT STORED (column N = L/J)
+            # COST/BIRD = TOTAL COST / BIRD STORED (column M = L/H)
+            # COST/KG = TOTAL COST / WEIGHT STORED (column N = L/I)
             for row in range(2, num_rows + 2):  # Start from row 2 (skip header)
                 formulas.append({
                     'range': f'{sheet_name}!M{row}',
-                    'values': [[f'=IF(I{row}=0,"",L{row}/I{row})']]  # Avoid division by zero
+                    'values': [[f'=IF(H{row}=0,"",L{row}/H{row})']]  # TOTAL COST / BIRD STORED
                 })
                 formulas.append({
                     'range': f'{sheet_name}!N{row}',
-                    'values': [[f'=IF(J{row}=0,"",L{row}/J{row})']]
+                    'values': [[f'=IF(I{row}=0,"",L{row}/I{row})']]  # TOTAL COST / WEIGHT STORED
                 })
 
             # Add AVERAGE formulas
