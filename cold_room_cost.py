@@ -346,7 +346,21 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             manual_cols_end = 8    # H
             calc_cols_start = 8    # I
 
-        # 1. Timestamp row formatting (row 1)
+        # 1. Merge cells in timestamp row (row 1)
+        requests.append({
+            'mergeCells': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': 0,
+                    'endRowIndex': 1,
+                    'startColumnIndex': 0,
+                    'endColumnIndex': total_cols
+                },
+                'mergeType': 'MERGE_ALL'
+            }
+        })
+
+        # 1a. Timestamp row formatting (row 1)
         requests.append({
             'repeatCell': {
                 'range': {
@@ -372,7 +386,21 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 2. Methodology row formatting (row 2)
+        # 2. Merge cells in methodology row (row 2)
+        requests.append({
+            'mergeCells': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': 1,
+                    'endRowIndex': 2,
+                    'startColumnIndex': 0,
+                    'endColumnIndex': total_cols
+                },
+                'mergeType': 'MERGE_ALL'
+            }
+        })
+
+        # 2a. Methodology row formatting (row 2)
         requests.append({
             'repeatCell': {
                 'range': {
@@ -399,7 +427,21 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 3. Formula description row formatting (row 3)
+        # 3. Merge cells in formula description row (row 3)
+        requests.append({
+            'mergeCells': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': 2,
+                    'endRowIndex': 3,
+                    'startColumnIndex': 0,
+                    'endColumnIndex': total_cols
+                },
+                'mergeType': 'MERGE_ALL'
+            }
+        })
+
+        # 3a. Formula description row formatting (row 3)
         requests.append({
             'repeatCell': {
                 'range': {
