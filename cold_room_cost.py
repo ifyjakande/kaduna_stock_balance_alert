@@ -690,11 +690,13 @@ def upload_df_to_gsheet(df: pd.DataFrame,
             ).execute()
 
         # Update with headers and our data
+        # Use USER_ENTERED so Google Sheets interprets numeric strings as numbers
+        # This allows the number formatting (#,##0.000) to be applied properly
         def _update_sheet():
             return service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range=f'{sheet_name}!A1',
-                valueInputOption='RAW',
+                valueInputOption='USER_ENTERED',
                 body={'values': values}
             ).execute()
 
