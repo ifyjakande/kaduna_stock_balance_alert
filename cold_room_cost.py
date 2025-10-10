@@ -7,12 +7,23 @@ import time
 import random
 from typing import Any
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from datetime import datetime, timedelta, timezone
 
 GOOGLE_SHEETS_SCOPE = ['https://www.googleapis.com/auth/spreadsheets']
 
 class DataProcessingError(Exception):
     """Custom exception for data processing errors"""
     pass
+
+def get_wat_timestamp() -> str:
+    """Get current timestamp in WAT timezone with AM/PM format"""
+    # WAT is UTC+1
+    utc_now = datetime.now(timezone.utc)
+    wat_now = utc_now + timedelta(hours=1)
+
+    # Format: "January 10, 2025 at 3:45 PM WAT"
+    formatted_time = wat_now.strftime("%B %d, %Y at %-I:%M %p WAT")
+    return formatted_time
 
 def is_rate_limit_error(exception):
     """Check if the exception is a rate limit error"""
@@ -144,19 +155,30 @@ def create_whole_chicken_report(df: pd.DataFrame) -> pd.DataFrame:
     except Exception as e:
         raise DataProcessingError(f"Failed to create whole chicken report: {str(e)}")
 
-def create_gizzard_report(df: pd.DataFrame) -> pd.DataFrame:
-    """Create gizzard report with weight metrics"""
+
+def create_combined_report(df: pd.DataFrame) -> pd.DataFrame:
+    """Create combined report with summed weights of chicken and gizzard (all absolute values)"""
     try:
-        print("\nCreating gizzard report...")
+        print("\nCreating combined report...")
 
         # Extract relevant columns
         report_df = pd.DataFrame()
         report_df['MONTH'] = df['year_month']
 
+        # Get chicken columns (convert to numeric and apply absolute value)
+        chicken_inflow = pd.to_numeric(df['total_whole_chicken_inflow_weight'], errors='coerce').fillna(0).abs()
+        chicken_release = pd.to_numeric(df['total_whole_chicken_release_weight'], errors='coerce').fillna(0).abs()
+        chicken_balance = pd.to_numeric(df['whole_chicken_weight_stock_balance'], errors='coerce').fillna(0).abs()
+
         # Get gizzard columns (convert to numeric and apply absolute value)
-        report_df['INFLOW WEIGHT'] = pd.to_numeric(df['total_gizzard_inflow_weight'], errors='coerce').fillna(0).abs()
-        report_df['RELEASE WEIGHT'] = pd.to_numeric(df['total_gizzard_release_weight'], errors='coerce').fillna(0).abs()
-        report_df['WEIGHT BALANCE'] = pd.to_numeric(df['gizzard_weight_stock_balance'], errors='coerce').fillna(0).abs()
+        gizzard_inflow = pd.to_numeric(df['total_gizzard_inflow_weight'], errors='coerce').fillna(0).abs()
+        gizzard_release = pd.to_numeric(df['total_gizzard_release_weight'], errors='coerce').fillna(0).abs()
+        gizzard_balance = pd.to_numeric(df['gizzard_weight_stock_balance'], errors='coerce').fillna(0).abs()
+
+        # Sum chicken and gizzard weights
+        report_df['INFLOW WEIGHT'] = (chicken_inflow + gizzard_inflow).abs()
+        report_df['RELEASE WEIGHT'] = (chicken_release + gizzard_release).abs()
+        report_df['WEIGHT BALANCE'] = (chicken_balance + gizzard_balance).abs()
 
         # Calculate WEIGHT STORED = current inflow weight + previous month weight balance (with absolute value)
         report_df['WEIGHT STORED'] = 0.0
@@ -169,31 +191,6 @@ def create_gizzard_report(df: pd.DataFrame) -> pd.DataFrame:
 
         # Round numeric columns to 2 decimal places
         numeric_cols = ['INFLOW WEIGHT', 'RELEASE WEIGHT', 'WEIGHT BALANCE', 'WEIGHT STORED']
-        for col in numeric_cols:
-            report_df[col] = report_df[col].round(2)
-
-        print(f"Gizzard report created with {len(report_df)} rows")
-        return report_df
-    except Exception as e:
-        raise DataProcessingError(f"Failed to create gizzard report: {str(e)}")
-
-def create_combined_report(chicken_df: pd.DataFrame, gizzard_df: pd.DataFrame) -> pd.DataFrame:
-    """Create combined report with summed weights (all absolute values)"""
-    try:
-        print("\nCreating combined report...")
-
-        # Create combined report
-        report_df = pd.DataFrame()
-        report_df['MONTH'] = chicken_df['MONTH']
-
-        # Sum chicken and gizzard weights (apply absolute value to ensure no negatives)
-        report_df['TOTAL INFLOW WEIGHT'] = (chicken_df['INFLOW WEIGHT'] + gizzard_df['INFLOW WEIGHT']).abs()
-        report_df['TOTAL RELEASE WEIGHT'] = (chicken_df['RELEASE WEIGHT'] + gizzard_df['RELEASE WEIGHT']).abs()
-        report_df['WEIGHT BALANCE'] = (chicken_df['WEIGHT BALANCE'] + gizzard_df['WEIGHT BALANCE']).abs()
-        report_df['WEIGHT STORED'] = (chicken_df['WEIGHT STORED'] + gizzard_df['WEIGHT STORED']).abs()
-
-        # Round numeric columns to 2 decimal places
-        numeric_cols = ['TOTAL INFLOW WEIGHT', 'TOTAL RELEASE WEIGHT', 'WEIGHT BALANCE', 'WEIGHT STORED']
         for col in numeric_cols:
             report_df[col] = report_df[col].round(2)
 
@@ -267,12 +264,12 @@ def add_formulas_to_sheet(service: Any, spreadsheet_id: str, sheet_name: str, re
         print(f"Adding formulas to {sheet_name}...")
 
         formulas = []
-        avg_row = num_rows + 2  # Average row comes after all data rows
+        avg_row = num_rows + 5  # Average row comes after all data rows (rows 1-3: headers, row 4: column headers, rows 5+: data)
 
         if report_type == 'whole_chicken':
             # COST/BIRD = TOTAL COST / BIRD STORED (column M = L/H)
             # COST/KG = TOTAL COST / WEIGHT STORED (column N = L/I)
-            for row in range(2, num_rows + 2):  # Start from row 2 (skip header)
+            for row in range(5, num_rows + 5):  # Start from row 5 (skip timestamp, methodology, formulas, column headers)
                 formulas.append({
                     'range': f'{sheet_name}!M{row}',
                     'values': [[f'=IF(H{row}=0,"",L{row}/H{row})']]  # TOTAL COST / BIRD STORED
@@ -285,15 +282,15 @@ def add_formulas_to_sheet(service: Any, spreadsheet_id: str, sheet_name: str, re
             # Add AVERAGE formulas
             formulas.append({
                 'range': f'{sheet_name}!M{avg_row}',
-                'values': [[f'=AVERAGE(M2:M{num_rows + 1})']]
+                'values': [[f'=AVERAGE(M5:M{num_rows + 4})']]
             })
             formulas.append({
                 'range': f'{sheet_name}!N{avg_row}',
-                'values': [[f'=AVERAGE(N2:N{num_rows + 1})']]
+                'values': [[f'=AVERAGE(N5:N{num_rows + 4})']]
             })
         else:  # gizzard or combined
             # COST/KG = TOTAL COST / WEIGHT STORED (column I = H/E)
-            for row in range(2, num_rows + 2):
+            for row in range(5, num_rows + 5):
                 formulas.append({
                     'range': f'{sheet_name}!I{row}',
                     'values': [[f'=IF(E{row}=0,"",H{row}/E{row})']]
@@ -302,7 +299,7 @@ def add_formulas_to_sheet(service: Any, spreadsheet_id: str, sheet_name: str, re
             # Add AVERAGE formula for COST/KG
             formulas.append({
                 'range': f'{sheet_name}!I{avg_row}',
-                'values': [[f'=AVERAGE(I2:I{num_rows + 1})']]
+                'values': [[f'=AVERAGE(I5:I{num_rows + 4})']]
             })
 
         # Batch update formulas
@@ -349,13 +346,92 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             manual_cols_end = 8    # H
             calc_cols_start = 8    # I
 
-        # 1. Header row formatting (row 1, all columns)
+        # 1. Timestamp row formatting (row 1)
         requests.append({
             'repeatCell': {
                 'range': {
                     'sheetId': sheet_id,
                     'startRowIndex': 0,
                     'endRowIndex': 1,
+                    'startColumnIndex': 0,
+                    'endColumnIndex': total_cols
+                },
+                'cell': {
+                    'userEnteredFormat': {
+                        'backgroundColor': {'red': 0.85, 'green': 0.92, 'blue': 0.95},  # Light blue-grey
+                        'textFormat': {
+                            'bold': True,
+                            'fontSize': 10,
+                            'foregroundColor': {'red': 0.2, 'green': 0.2, 'blue': 0.2}
+                        },
+                        'horizontalAlignment': 'LEFT',
+                        'verticalAlignment': 'MIDDLE'
+                    }
+                },
+                'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
+            }
+        })
+
+        # 2. Methodology row formatting (row 2)
+        requests.append({
+            'repeatCell': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': 1,
+                    'endRowIndex': 2,
+                    'startColumnIndex': 0,
+                    'endColumnIndex': total_cols
+                },
+                'cell': {
+                    'userEnteredFormat': {
+                        'backgroundColor': {'red': 0.996, 'green': 0.98, 'blue': 0.88},  # Light info background
+                        'textFormat': {
+                            'italic': True,
+                            'fontSize': 9,
+                            'foregroundColor': {'red': 0.3, 'green': 0.3, 'blue': 0.3}
+                        },
+                        'horizontalAlignment': 'LEFT',
+                        'verticalAlignment': 'MIDDLE',
+                        'wrapStrategy': 'WRAP'
+                    }
+                },
+                'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,wrapStrategy)'
+            }
+        })
+
+        # 3. Formula description row formatting (row 3)
+        requests.append({
+            'repeatCell': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': 2,
+                    'endRowIndex': 3,
+                    'startColumnIndex': 0,
+                    'endColumnIndex': total_cols
+                },
+                'cell': {
+                    'userEnteredFormat': {
+                        'backgroundColor': {'red': 0.95, 'green': 0.95, 'blue': 0.97},  # Light grey-purple
+                        'textFormat': {
+                            'fontSize': 8,
+                            'foregroundColor': {'red': 0.4, 'green': 0.4, 'blue': 0.4}
+                        },
+                        'horizontalAlignment': 'LEFT',
+                        'verticalAlignment': 'MIDDLE',
+                        'wrapStrategy': 'WRAP'
+                    }
+                },
+                'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,wrapStrategy)'
+            }
+        })
+
+        # 4. Column header row formatting (row 4, all columns)
+        requests.append({
+            'repeatCell': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'startRowIndex': 3,
+                    'endRowIndex': 4,
                     'startColumnIndex': 0,
                     'endColumnIndex': total_cols
                 },
@@ -375,13 +451,13 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 2. Our data columns (light blue) - excluding average row
+        # 5. Our data columns (light blue) - excluding average row
         requests.append({
             'repeatCell': {
                 'range': {
                     'sheetId': sheet_id,
-                    'startRowIndex': 1,
-                    'endRowIndex': num_rows + 1,
+                    'startRowIndex': 4,
+                    'endRowIndex': num_rows + 4,
                     'startColumnIndex': 0,
                     'endColumnIndex': our_cols
                 },
@@ -394,13 +470,13 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 3. Manual input columns (light yellow) - excluding average row
+        # 6. Manual input columns (light yellow) - excluding average row
         requests.append({
             'repeatCell': {
                 'range': {
                     'sheetId': sheet_id,
-                    'startRowIndex': 1,
-                    'endRowIndex': num_rows + 1,
+                    'startRowIndex': 4,
+                    'endRowIndex': num_rows + 4,
                     'startColumnIndex': manual_cols_start,
                     'endColumnIndex': manual_cols_end
                 },
@@ -413,13 +489,13 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 4. Calculated columns (light green) - excluding average row
+        # 7. Calculated columns (light green) - excluding average row
         requests.append({
             'repeatCell': {
                 'range': {
                     'sheetId': sheet_id,
-                    'startRowIndex': 1,
-                    'endRowIndex': num_rows + 1,
+                    'startRowIndex': 4,
+                    'endRowIndex': num_rows + 4,
                     'startColumnIndex': calc_cols_start,
                     'endColumnIndex': total_cols
                 },
@@ -432,8 +508,8 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 5. Format AVERAGE row distinctly (darker grey, bold)
-        avg_row_index = num_rows + 1
+        # 8. Format AVERAGE row distinctly (darker grey, bold)
+        avg_row_index = num_rows + 4
         requests.append({
             'repeatCell': {
                 'range': {
@@ -457,13 +533,13 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 6. Add borders to all cells (including average row)
+        # 9. Add borders to all cells (including timestamp, methodology, formulas, and average row)
         requests.append({
             'updateBorders': {
                 'range': {
                     'sheetId': sheet_id,
                     'startRowIndex': 0,
-                    'endRowIndex': num_rows + 2,  # Include average row
+                    'endRowIndex': num_rows + 5,  # Include timestamp, methodology, formulas, headers, data, and average row
                     'startColumnIndex': 0,
                     'endColumnIndex': total_cols
                 },
@@ -474,20 +550,20 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 7. Freeze header row
+        # 10. Freeze first 4 rows (timestamp, methodology, formulas, column headers)
         requests.append({
             'updateSheetProperties': {
                 'properties': {
                     'sheetId': sheet_id,
                     'gridProperties': {
-                        'frozenRowCount': 1
+                        'frozenRowCount': 4
                     }
                 },
                 'fields': 'gridProperties.frozenRowCount'
             }
         })
 
-        # 8. Auto-resize all columns to fit content properly
+        # 11. Auto-resize all columns to fit content properly
         requests.append({
             'autoResizeDimensions': {
                 'dimensions': {
@@ -499,7 +575,7 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 9. Set minimum column widths to ensure readability
+        # 12. Set minimum column widths to ensure readability
         for col_index in range(total_cols):
             requests.append({
                 'updateDimensionProperties': {
@@ -551,8 +627,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'repeatCell': {
                         'range': {
                             'sheetId': sheet_id,
-                            'startRowIndex': 1,
-                            'endRowIndex': num_rows + 1,
+                            'startRowIndex': 4,
+                            'endRowIndex': num_rows + 4,
                             'startColumnIndex': col_idx,
                             'endColumnIndex': col_idx + 1
                         },
@@ -574,8 +650,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'repeatCell': {
                         'range': {
                             'sheetId': sheet_id,
-                            'startRowIndex': 1,
-                            'endRowIndex': num_rows + 1,
+                            'startRowIndex': 4,
+                            'endRowIndex': num_rows + 4,
                             'startColumnIndex': col_idx,
                             'endColumnIndex': col_idx + 1
                         },
@@ -596,8 +672,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': num_rows + 1,
+                        'startRowIndex': 4,
+                        'endRowIndex': num_rows + 4,
                         'startColumnIndex': 9,  # Column J
                         'endColumnIndex': 10
                     },
@@ -618,8 +694,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': num_rows + 1,
+                        'startRowIndex': 4,
+                        'endRowIndex': num_rows + 4,
                         'startColumnIndex': 10,  # Column K
                         'endColumnIndex': 12     # Column L
                     },
@@ -640,8 +716,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': num_rows + 2,  # Include average row
+                        'startRowIndex': 4,
+                        'endRowIndex': num_rows + 5,  # Include average row
                         'startColumnIndex': 12,  # Column M
                         'endColumnIndex': 14     # Column N
                     },
@@ -662,8 +738,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': num_rows + 1,
+                        'startRowIndex': 4,
+                        'endRowIndex': num_rows + 4,
                         'startColumnIndex': 1,  # Column B
                         'endColumnIndex': 5     # Up to column E
                     },
@@ -684,8 +760,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': num_rows + 1,
+                        'startRowIndex': 4,
+                        'endRowIndex': num_rows + 4,
                         'startColumnIndex': 5,  # Column F
                         'endColumnIndex': 6
                     },
@@ -706,8 +782,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': num_rows + 1,
+                        'startRowIndex': 4,
+                        'endRowIndex': num_rows + 4,
                         'startColumnIndex': 6,  # Column G
                         'endColumnIndex': 8     # Column H
                     },
@@ -728,8 +804,8 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': num_rows + 2,  # Include average row
+                        'startRowIndex': 4,
+                        'endRowIndex': num_rows + 5,  # Include average row
                         'startColumnIndex': 8,  # Column I
                         'endColumnIndex': 9
                     },
@@ -758,6 +834,38 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
 
     except Exception as e:
         print(f"Warning: Failed to apply number formatting: {str(e)}")
+
+def add_header_rows(service: Any, spreadsheet_id: str, sheet_name: str, report_type: str):
+    """Add timestamp, methodology note, and formula description rows at the top of the sheet"""
+    try:
+        print(f"Adding header rows to {sheet_name}...")
+
+        # Get current timestamp
+        timestamp = get_wat_timestamp()
+        timestamp_text = f"Last Updated: {timestamp}"
+
+        # Define methodology notes based on report type
+        if report_type == 'whole_chicken':
+            methodology_note = "COST/BIRD shows cost per bird stored. For cost per kg, refer to the Combined Report."
+            formula_note = "KEY FORMULAS: BIRD STORED = Current Inflow + Previous Balance | WEIGHT STORED = Current Inflow Weight + Previous Weight Balance"
+        else:  # combined
+            methodology_note = "This represents the true storage cost per kg, calculated by dividing total monthly cost by combined weight of all products (chicken + gizzard)."
+            formula_note = "KEY FORMULAS: WEIGHT STORED = Current Inflow Weight + Previous Weight Balance"
+
+        # Add timestamp, methodology, and formula description rows
+        def _add_headers():
+            return service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f'{sheet_name}!A1:A3',
+                valueInputOption='RAW',
+                body={'values': [[timestamp_text], [methodology_note], [formula_note]]}
+            ).execute()
+
+        robust_sheets_operation(_add_headers)
+        print(f"Header rows added to {sheet_name}")
+
+    except Exception as e:
+        print(f"Warning: Failed to add header rows: {str(e)}")
 
 def upload_df_to_gsheet(df: pd.DataFrame,
                        spreadsheet_id: str,
@@ -804,13 +912,13 @@ def upload_df_to_gsheet(df: pd.DataFrame,
                 range=f'{sheet_name}!{our_range}'
             ).execute()
 
-        # Update with headers and our data
+        # Update with headers and our data (starting from row 4, after timestamp, methodology, and formula descriptions)
         # Use USER_ENTERED so Google Sheets interprets numeric strings as numbers
         # This allows the number formatting (#,##0.000) to be applied properly
         def _update_sheet():
             return service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
-                range=f'{sheet_name}!A1',
+                range=f'{sheet_name}!A4',
                 valueInputOption='USER_ENTERED',
                 body={'values': values}
             ).execute()
@@ -821,8 +929,11 @@ def upload_df_to_gsheet(df: pd.DataFrame,
         num_rows = len(df_to_upload)
         print(f"Updated {result.get('updatedCells')} cells in {sheet_name}")
 
+        # Add timestamp, methodology, and formula description rows at the top
+        add_header_rows(service, spreadsheet_id, sheet_name, report_type)
+
         # Add AVERAGE label in column A of average row
-        avg_row = num_rows + 2
+        avg_row = num_rows + 5
         def _add_average_label():
             return service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
@@ -885,13 +996,11 @@ def main():
 
         # Create reports
         chicken_report = create_whole_chicken_report(filtered_df)
-        gizzard_report = create_gizzard_report(filtered_df)
-        combined_report = create_combined_report(chicken_report, gizzard_report)
+        combined_report = create_combined_report(filtered_df)
 
         # Upload reports with their types
         upload_tasks = [
             (chicken_report, 'whole_chicken_report', 'whole_chicken'),
-            (gizzard_report, 'gizzard_report', 'gizzard'),
             (combined_report, 'combined_report', 'combined')
         ]
 
