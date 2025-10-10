@@ -199,15 +199,21 @@ def create_combined_report(chicken_df: pd.DataFrame, gizzard_df: pd.DataFrame) -
         raise DataProcessingError(f"Failed to create combined report: {str(e)}")
 
 def prepare_df_for_upload(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepare dataframe for upload to Google Sheets"""
+    """Prepare dataframe for upload to Google Sheets - preserve numeric types"""
     print("\nPreparing dataframe for upload...")
     df_copy = df.copy()
 
-    # Convert all columns to string
+    # Process each column based on its type
     for col in df_copy.columns:
-        df_copy[col] = df_copy[col].fillna('')
-        df_copy[col] = df_copy[col].astype(str)
-        df_copy[col] = df_copy[col].replace('nan', '')
+        if col == 'MONTH':
+            # MONTH is text - convert to string
+            df_copy[col] = df_copy[col].fillna('').astype(str)
+        else:
+            # All other columns are numeric - keep as float for proper formatting
+            # Replace NaN with 0 for numeric columns
+            df_copy[col] = df_copy[col].fillna(0)
+            # Ensure they're float type (not string)
+            df_copy[col] = df_copy[col].astype(float)
 
     return df_copy
 
@@ -678,9 +684,16 @@ def upload_df_to_gsheet(df: pd.DataFrame,
                           'WEIGHT STORED', 'UNIT USED', 'TOTAL DEPOSIT', 'TOTAL COST', 'COST/KG']
 
         # Prepare values with full headers but only our data
+        # Keep numbers as floats so Google Sheets applies number formatting
         values = [all_headers]  # Full header row
-        values.extend([[str(cell) if cell is not None and cell == cell else ''
-                       for cell in row] for row in df_to_upload.values.tolist()])
+        for row in df_to_upload.values.tolist():
+            row_values = []
+            for i, cell in enumerate(row):
+                if i == 0:  # MONTH column - keep as string
+                    row_values.append(str(cell) if cell is not None else '')
+                else:  # Numeric columns - keep as float
+                    row_values.append(float(cell) if cell is not None and cell == cell else 0)
+            values.append(row_values)
 
         # Clear only our columns
         def _clear_our_columns():
