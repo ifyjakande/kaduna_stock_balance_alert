@@ -129,11 +129,11 @@ def create_whole_chicken_report(df: pd.DataFrame) -> pd.DataFrame:
                 report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = \
                     abs(report_df.iloc[i]['INFLOW WEIGHT'] + report_df.iloc[i-1]['WEIGHT BALANCE'])
 
-        # Round numeric columns to 3 decimal places
+        # Round numeric columns to 2 decimal places
         numeric_cols = ['TOTAL INFLOW', 'INFLOW WEIGHT', 'TOTAL RELEASE', 'RELEASE WEIGHT',
                        'BALANCE', 'WEIGHT BALANCE', 'BIRD STORED', 'WEIGHT STORED']
         for col in numeric_cols:
-            report_df[col] = report_df[col].round(3)
+            report_df[col] = report_df[col].round(2)
 
         print(f"Whole chicken report created with {len(report_df)} rows")
         return report_df
@@ -163,10 +163,10 @@ def create_gizzard_report(df: pd.DataFrame) -> pd.DataFrame:
                 report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = \
                     abs(report_df.iloc[i]['INFLOW WEIGHT'] + report_df.iloc[i-1]['WEIGHT BALANCE'])
 
-        # Round numeric columns to 3 decimal places
+        # Round numeric columns to 2 decimal places
         numeric_cols = ['INFLOW WEIGHT', 'RELEASE WEIGHT', 'WEIGHT BALANCE', 'WEIGHT STORED']
         for col in numeric_cols:
-            report_df[col] = report_df[col].round(3)
+            report_df[col] = report_df[col].round(2)
 
         print(f"Gizzard report created with {len(report_df)} rows")
         return report_df
@@ -188,10 +188,10 @@ def create_combined_report(chicken_df: pd.DataFrame, gizzard_df: pd.DataFrame) -
         report_df['WEIGHT BALANCE'] = (chicken_df['WEIGHT BALANCE'] + gizzard_df['WEIGHT BALANCE']).abs()
         report_df['WEIGHT STORED'] = (chicken_df['WEIGHT STORED'] + gizzard_df['WEIGHT STORED']).abs()
 
-        # Round numeric columns to 3 decimal places
+        # Round numeric columns to 2 decimal places
         numeric_cols = ['TOTAL INFLOW WEIGHT', 'TOTAL RELEASE WEIGHT', 'WEIGHT BALANCE', 'WEIGHT STORED']
         for col in numeric_cols:
-            report_df[col] = report_df[col].round(3)
+            report_df[col] = report_df[col].round(2)
 
         print(f"Combined report created with {len(report_df)} rows")
         return report_df
@@ -538,7 +538,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
         requests = []
 
         # Apply number formatting with thousand separators to all numeric columns
-        # Format: #,##0.000 (thousand separator with 3 decimal places)
+        # Format: #,##0.00 (thousand separator with 2 decimal places)
         if report_type == 'whole_chicken':
             # Numeric columns B-J (indices 1-9) for data rows
             requests.append({
@@ -554,7 +554,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.000'
+                                'pattern': '#,##0.00'
                             }
                         }
                     },
@@ -575,7 +575,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.000'
+                                'pattern': '#,##0.00'
                             }
                         }
                     },
@@ -596,7 +596,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.000'
+                                'pattern': '#,##0.00'
                             }
                         }
                     },
@@ -618,7 +618,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.000'
+                                'pattern': '#,##0.00'
                             }
                         }
                     },
@@ -639,7 +639,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.000'
+                                'pattern': '#,##0.00'
                             }
                         }
                     },
@@ -660,7 +660,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.000'
+                                'pattern': '#,##0.00'
                             }
                         }
                     },
