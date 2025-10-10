@@ -447,7 +447,138 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 6. Add borders to all cells (including average row)
+        # 6. Apply number formatting with thousand separators to all numeric columns
+        # Format: #,##0.000 (thousand separator with 3 decimal places)
+        if report_type == 'whole_chicken':
+            # Numeric columns B-J (indices 1-9) for data rows
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,
+                        'endRowIndex': num_rows + 1,
+                        'startColumnIndex': 1,  # Column B
+                        'endColumnIndex': 10    # Up to column J (WEIGHT STORED)
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': 'NUMBER',
+                                'pattern': '#,##0.000'
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat'
+                }
+            })
+            # Manual input columns J-L (indices 9-12)
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,
+                        'endRowIndex': num_rows + 1,
+                        'startColumnIndex': 9,   # Column J
+                        'endColumnIndex': 12     # Column L
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': 'NUMBER',
+                                'pattern': '#,##0.000'
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat'
+                }
+            })
+            # Formula columns M-N (indices 12-14) - includes average row
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,
+                        'endRowIndex': num_rows + 2,  # Include average row
+                        'startColumnIndex': 12,  # Column M
+                        'endColumnIndex': 14     # Column N
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': 'NUMBER',
+                                'pattern': '#,##0.000'
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat'
+                }
+            })
+        else:  # gizzard or combined
+            # Numeric columns B-E (indices 1-5) for data rows
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,
+                        'endRowIndex': num_rows + 1,
+                        'startColumnIndex': 1,  # Column B
+                        'endColumnIndex': 5     # Up to column E
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': 'NUMBER',
+                                'pattern': '#,##0.000'
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat'
+                }
+            })
+            # Manual input columns F-H (indices 5-8)
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,
+                        'endRowIndex': num_rows + 1,
+                        'startColumnIndex': 5,   # Column F
+                        'endColumnIndex': 8      # Column H
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': 'NUMBER',
+                                'pattern': '#,##0.000'
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat'
+                }
+            })
+            # Formula column I (index 8) - includes average row
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,
+                        'endRowIndex': num_rows + 2,  # Include average row
+                        'startColumnIndex': 8,  # Column I
+                        'endColumnIndex': 9     # Just column I
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': 'NUMBER',
+                                'pattern': '#,##0.000'
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat'
+                }
+            })
+
+        # 7. Add borders to all cells (including average row)
         requests.append({
             'updateBorders': {
                 'range': {
@@ -464,7 +595,7 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 7. Freeze header row
+        # 8. Freeze header row
         requests.append({
             'updateSheetProperties': {
                 'properties': {
@@ -477,7 +608,7 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
             }
         })
 
-        # 8. Auto-resize columns
+        # 9. Auto-resize all columns to fit content properly
         requests.append({
             'autoResizeDimensions': {
                 'dimensions': {
@@ -488,6 +619,24 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 }
             }
         })
+
+        # 10. Set minimum column widths to ensure readability
+        # This ensures columns are wide enough to show formatted numbers with commas
+        for col_index in range(total_cols):
+            requests.append({
+                'updateDimensionProperties': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'dimension': 'COLUMNS',
+                        'startIndex': col_index,
+                        'endIndex': col_index + 1
+                    },
+                    'properties': {
+                        'pixelSize': 130  # Minimum width for proper number display
+                    },
+                    'fields': 'pixelSize'
+                }
+            })
 
         # Execute all formatting in one batch request
         def _apply_formatting():
