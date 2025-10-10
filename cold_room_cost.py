@@ -129,10 +129,14 @@ def create_whole_chicken_report(df: pd.DataFrame) -> pd.DataFrame:
                 report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = \
                     abs(report_df.iloc[i]['INFLOW WEIGHT'] + report_df.iloc[i-1]['WEIGHT BALANCE'])
 
-        # Round numeric columns to 2 decimal places
-        numeric_cols = ['TOTAL INFLOW', 'INFLOW WEIGHT', 'TOTAL RELEASE', 'RELEASE WEIGHT',
-                       'BALANCE', 'WEIGHT BALANCE', 'BIRD STORED', 'WEIGHT STORED']
-        for col in numeric_cols:
+        # Round quantity columns to 0 decimal places
+        quantity_cols = ['TOTAL INFLOW', 'TOTAL RELEASE', 'BALANCE', 'BIRD STORED']
+        for col in quantity_cols:
+            report_df[col] = report_df[col].round(0)
+
+        # Round weight columns to 2 decimal places
+        weight_cols = ['INFLOW WEIGHT', 'RELEASE WEIGHT', 'WEIGHT BALANCE', 'WEIGHT STORED']
+        for col in weight_cols:
             report_df[col] = report_df[col].round(2)
 
         print(f"Whole chicken report created with {len(report_df)} rows")
@@ -537,52 +541,101 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
 
         requests = []
 
-        # Apply number formatting with thousand separators to all numeric columns
-        # Format: #,##0.00 (thousand separator with 2 decimal places)
+        # Apply number formatting with thousand separators
+        # Quantity columns: #,##0 (0 decimal places)
+        # Weight/Money columns: #,##0.00 (2 decimal places)
         if report_type == 'whole_chicken':
-            # Numeric columns B-J (indices 1-9) for data rows
+            # Quantity columns with 0 dp: B (TOTAL INFLOW), D (TOTAL RELEASE), F (BALANCE), H (BIRD STORED)
+            for col_idx in [1, 3, 5, 7]:  # B, D, F, H
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 1,
+                            'endRowIndex': num_rows + 1,
+                            'startColumnIndex': col_idx,
+                            'endColumnIndex': col_idx + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'numberFormat': {
+                                    'type': 'NUMBER',
+                                    'pattern': '#,##0'
+                                }
+                            }
+                        },
+                        'fields': 'userEnteredFormat.numberFormat'
+                    }
+                })
+
+            # Weight columns with 2 dp: C (INFLOW WEIGHT), E (RELEASE WEIGHT), G (WEIGHT BALANCE), I (WEIGHT STORED)
+            for col_idx in [2, 4, 6, 8]:  # C, E, G, I
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 1,
+                            'endRowIndex': num_rows + 1,
+                            'startColumnIndex': col_idx,
+                            'endColumnIndex': col_idx + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'numberFormat': {
+                                    'type': 'NUMBER',
+                                    'pattern': '#,##0.00'
+                                }
+                            }
+                        },
+                        'fields': 'userEnteredFormat.numberFormat'
+                    }
+                })
+
+            # Manual input: J (UNIT USED) - 0 dp
             requests.append({
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 1,
                         'endRowIndex': num_rows + 1,
-                        'startColumnIndex': 1,  # Column B
-                        'endColumnIndex': 10    # Up to column J (WEIGHT STORED)
+                        'startColumnIndex': 9,  # Column J
+                        'endColumnIndex': 10
                     },
                     'cell': {
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.00'
+                                'pattern': '#,##0'
                             }
                         }
                     },
                     'fields': 'userEnteredFormat.numberFormat'
                 }
             })
-            # Manual input columns J-L (indices 9-12)
+
+            # Manual input: K-L (TOTAL DEPOSIT, TOTAL COST) - 2 dp with Naira symbol
             requests.append({
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 1,
                         'endRowIndex': num_rows + 1,
-                        'startColumnIndex': 9,   # Column J
+                        'startColumnIndex': 10,  # Column K
                         'endColumnIndex': 12     # Column L
                     },
                     'cell': {
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.00'
+                                'pattern': '₦#,##0.00'
                             }
                         }
                     },
                     'fields': 'userEnteredFormat.numberFormat'
                 }
             })
-            # Formula columns M-N (indices 12-14) - includes average row
+
+            # Formula columns M-N (COST/BIRD, COST/KG) - 2 dp with Naira symbol, includes average row
             requests.append({
                 'repeatCell': {
                     'range': {
@@ -596,7 +649,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.00'
+                                'pattern': '₦#,##0.00'
                             }
                         }
                     },
@@ -604,7 +657,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 }
             })
         else:  # gizzard or combined
-            # Numeric columns B-E (indices 1-5) for data rows
+            # Weight columns B-E (INFLOW WEIGHT, RELEASE WEIGHT, WEIGHT BALANCE, WEIGHT STORED) - 2 dp
             requests.append({
                 'repeatCell': {
                     'range': {
@@ -625,28 +678,52 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'fields': 'userEnteredFormat.numberFormat'
                 }
             })
-            # Manual input columns F-H (indices 5-8)
+
+            # Manual input: F (UNIT USED) - 0 dp
             requests.append({
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 1,
                         'endRowIndex': num_rows + 1,
-                        'startColumnIndex': 5,   # Column F
-                        'endColumnIndex': 8      # Column H
+                        'startColumnIndex': 5,  # Column F
+                        'endColumnIndex': 6
                     },
                     'cell': {
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.00'
+                                'pattern': '#,##0'
                             }
                         }
                     },
                     'fields': 'userEnteredFormat.numberFormat'
                 }
             })
-            # Formula column I (index 8) - includes average row
+
+            # Manual input: G-H (TOTAL DEPOSIT, TOTAL COST) - 2 dp with Naira symbol
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 1,
+                        'endRowIndex': num_rows + 1,
+                        'startColumnIndex': 6,  # Column G
+                        'endColumnIndex': 8     # Column H
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'numberFormat': {
+                                'type': 'NUMBER',
+                                'pattern': '₦#,##0.00'
+                            }
+                        }
+                    },
+                    'fields': 'userEnteredFormat.numberFormat'
+                }
+            })
+
+            # Formula column I (COST/KG) - 2 dp with Naira symbol, includes average row
             requests.append({
                 'repeatCell': {
                     'range': {
@@ -654,13 +731,13 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'startRowIndex': 1,
                         'endRowIndex': num_rows + 2,  # Include average row
                         'startColumnIndex': 8,  # Column I
-                        'endColumnIndex': 9     # Just column I
+                        'endColumnIndex': 9
                     },
                     'cell': {
                         'userEnteredFormat': {
                             'numberFormat': {
                                 'type': 'NUMBER',
-                                'pattern': '#,##0.00'
+                                'pattern': '₦#,##0.00'
                             }
                         }
                     },
