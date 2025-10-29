@@ -1404,11 +1404,8 @@ def build_gizzard_and_parts_widgets(balance_data):
             }
         })
 
-        # Group by grade
-        grades = {'Grade A (Standard Gizzard)': {}, 'Grade A (Standard Wings)': {}, 'Grade A (Standard Laps)': {},
-                  'Grade A (Standard Breast)': {}, 'Grade A (Standard Fillet)': {}, 'Grade A (Standard Bones)': {},
-                  'Grade B': {}, 'Grade C': {}, 'Grade D': {}}
-
+        # Group by grade dynamically from actual data
+        grades = {}
         for col in product_cols:
             grade = col['grade']
             metric = col['metric']
@@ -1417,9 +1414,16 @@ def build_gizzard_and_parts_widgets(balance_data):
                 grades[grade] = {}
             grades[grade][metric] = value
 
+        # Sort grades for consistent display (A before B before C before D)
+        grade_order = [g for g in ['Grade A (Standard Gizzard)', 'Grade A (Standard Wings)', 'Grade A (Standard Laps)',
+                                   'Grade A (Standard Breast)', 'Grade A (Standard Fillet)', 'Grade A (Standard Bones)',
+                                   'Grade A', 'Grade B', 'Grade C', 'Grade D'] if g in grades]
+        # Add any remaining grades not in the predefined order
+        grade_order.extend([g for g in sorted(grades.keys()) if g not in grade_order])
+
         # Display each grade
-        for grade_name in grades:
-            grade_data = grades[grade_name]
+        for grade_name in grade_order:
+            grade_data = grades.get(grade_name, {})
             if not grade_data:
                 continue
 
@@ -1430,17 +1434,19 @@ def build_gizzard_and_parts_widgets(balance_data):
                             .replace('(Standard Fillet)', '')
                             .replace('(Standard Bones)', '').strip())
 
-            packs = float(grade_data.get('Packs', 0))
-            weight = float(grade_data.get('Weight(kg)', 0))
+            packs = float(grade_data.get('Packs', 0)) if grade_data.get('Packs') else 0
+            weight = float(grade_data.get('Weight(kg)', 0)) if grade_data.get('Weight(kg)') else 0
 
-            packs_text = f"{packs:,.1f} pack" if packs == 1 else f"{packs:,.1f} packs"
+            # Only show grades with actual data
+            if packs > 0 or weight > 0:
+                packs_text = f"{packs:,.1f} pack" if packs == 1 else f"{packs:,.1f} packs"
 
-            widgets.append({
-                "decoratedText": {
-                    "topLabel": grade_display,
-                    "text": f"{packs_text} ({weight:,.2f} kg)"
-                }
-            })
+                widgets.append({
+                    "decoratedText": {
+                        "topLabel": grade_display,
+                        "text": f"{packs_text} ({weight:,.2f} kg)"
+                    }
+                })
 
         # Add divider between products (except last one)
         if product_name != products_order[-1]:
