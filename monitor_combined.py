@@ -1315,10 +1315,10 @@ def build_whole_chicken_widgets(balance_data):
     total_qty = 0
     total_weight_kg = 0
 
-    for weight in weight_order:
-        if weight not in weight_ranges:
-            continue
+    # Filter to only weights with data
+    weights_with_data = [w for w in weight_order if w in weight_ranges]
 
+    for idx, weight in enumerate(weights_with_data):
         # Add weight category header
         widgets.append({
             "decoratedText": {
@@ -1372,6 +1372,10 @@ def build_whole_chicken_widgets(balance_data):
                 }
             })
 
+        # Add divider after each weight category (except the last one)
+        if idx < len(weights_with_data) - 1:
+            widgets.append({"divider": {}})
+
     # Add totals
     total_tonnes = total_weight_kg / 1000
     widgets.append({"divider": {}})
@@ -1391,11 +1395,35 @@ def build_gizzard_and_parts_widgets(balance_data):
     # Products to display (in order)
     products_order = ['GIZZARD', 'WINGS', 'LAPS', 'BREAST', 'FILLET', 'BONES']
 
+    # First pass: identify which products have data
+    products_with_data = []
     for product_name in products_order:
+        product_cols = [col for col in parsed_columns if col['product'] == product_name]
+        if product_cols:
+            # Check if product has any data (packs > 0 or weight > 0)
+            has_any_data = False
+            for col in product_cols:
+                if col['metric'] == 'Packs':
+                    try:
+                        if float(col['value']) > 0:
+                            has_any_data = True
+                            break
+                    except (ValueError, TypeError):
+                        pass
+                elif col['metric'] == 'Weight(kg)':
+                    try:
+                        if float(col['value']) > 0:
+                            has_any_data = True
+                            break
+                    except (ValueError, TypeError):
+                        pass
+            if has_any_data:
+                products_with_data.append(product_name)
+
+    # Second pass: display products with data and add dividers
+    for prod_idx, product_name in enumerate(products_with_data):
         # Get data for this product
         product_cols = [col for col in parsed_columns if col['product'] == product_name]
-        if not product_cols:
-            continue
 
         # Add product header
         widgets.append({
@@ -1421,8 +1449,7 @@ def build_gizzard_and_parts_widgets(balance_data):
         # Add any remaining grades not in the predefined order
         grade_order.extend([g for g in sorted(grades.keys()) if g not in grade_order])
 
-        # Display each grade and track if product has any data
-        has_data = False
+        # Display each grade
         for grade_name in grade_order:
             grade_data = grades.get(grade_name, {})
             if not grade_data:
@@ -1448,10 +1475,9 @@ def build_gizzard_and_parts_widgets(balance_data):
                         "text": f"{packs_text} ({weight:,.2f} kg)"
                     }
                 })
-                has_data = True
 
-        # Add divider after product only if it had data and is not the last product with data
-        if has_data and product_name != products_order[-1]:
+        # Add divider after product (except the last one with data)
+        if prod_idx < len(products_with_data) - 1:
             widgets.append({"divider": {}})
 
     return widgets
