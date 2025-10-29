@@ -1421,7 +1421,8 @@ def build_gizzard_and_parts_widgets(balance_data):
         # Add any remaining grades not in the predefined order
         grade_order.extend([g for g in sorted(grades.keys()) if g not in grade_order])
 
-        # Display each grade
+        # Display each grade and track if product has any data
+        has_data = False
         for grade_name in grade_order:
             grade_data = grades.get(grade_name, {})
             if not grade_data:
@@ -1447,9 +1448,10 @@ def build_gizzard_and_parts_widgets(balance_data):
                         "text": f"{packs_text} ({weight:,.2f} kg)"
                     }
                 })
+                has_data = True
 
-        # Add divider between products (except last one)
-        if product_name != products_order[-1]:
+        # Add divider after product only if it had data and is not the last product with data
+        if has_data and product_name != products_order[-1]:
             widgets.append({"divider": {}})
 
     return widgets
