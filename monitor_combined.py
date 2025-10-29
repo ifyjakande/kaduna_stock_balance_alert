@@ -538,6 +538,11 @@ def detect_balance_changes(previous_data, current_data):
             if prev_val != curr_val:
                 # Parse key back into components
                 product, grade, metric = key.split('|')
+                
+                # Skip Weight(kg) changes for whole chicken (weight is calculated from qty)
+                if 'WHOLE CHICKEN' in product and metric == 'Weight(kg)':
+                    continue
+                
                 changes.append({
                     'product': product,
                     'grade': grade,
@@ -1321,8 +1326,8 @@ def build_whole_chicken_widgets(balance_data):
             }
         })
 
-        # TODO: May be needed in future for approximations when Weight(kg) is unavailable
-        # weight_per_piece, is_approx, approx_text = get_weight_per_piece(weight)
+        # Get weight per piece for this category (used to calculate weight from qty)
+        weight_per_piece, is_approx, approx_text = get_weight_per_piece(weight)
 
         # Group by grade
         grades = {'Grade A (Standard Bird)': {}, 'Grade B': {}, 'Grade C': {}, 'Grade D': {}}
@@ -1342,7 +1347,7 @@ def build_whole_chicken_widgets(balance_data):
 
             grade_display = grade_name.replace('(Standard Bird)', '').strip()
             qty = float(grade_data.get('Qty', 0))
-            weight_kg = float(grade_data.get('Weight(kg)', 0))
+            weight_kg = qty * weight_per_piece  # Calculate weight: qty × weight per piece
 
             total_qty += qty
             total_weight_kg += weight_kg
