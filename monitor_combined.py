@@ -32,7 +32,7 @@ INVENTORY_RANGE = 'A:BZ'  # Get all columns since we're finding them by name (ex
 # No separate parts sheet needed
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-SERVICE_ACCOUNT_FILE = 'pullus-pipeline-40a5302e034d.json'
+SERVICE_ACCOUNT_FILE = 'service-account.json'
 
 # Set up data directory for state persistence
 DATA_DIR = os.getenv('GITHUB_WORKSPACE', os.getcwd())
