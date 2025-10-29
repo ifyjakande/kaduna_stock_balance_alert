@@ -2,6 +2,7 @@ import os
 import json
 import pickle
 import random
+import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -21,17 +22,17 @@ if not INVENTORY_SHEET_ID:
 if not SPECIFICATION_SHEET_ID:
     raise ValueError("SPECIFICATION_SHEET_ID environment variable not set")
     
-STOCK_SHEET_NAME = 'balance'
-STOCK_RANGE = 'A1:P3'  # Range covers A-P columns (Specification through TOTAL including Gizzard)
+STOCK_SHEET_NAME = 'Balance'
+STOCK_RANGE = 'A1:EX5'  # Range covers A-EX columns (154 columns) with 5 rows for multi-row headers
 
 INVENTORY_SHEET_NAME = 'summary'  # The sheet name from the inventory tracking spreadsheet
 INVENTORY_RANGE = 'A:BZ'  # Get all columns since we're finding them by name (extends beyond Z for 53+ columns)
 
-PARTS_SHEET_NAME = 'parts_balance'
-PARTS_RANGE = 'A1:H3'  # Adjust range to cover all parts data
+# Parts are now included in the Balance sheet (Wings, Laps, Breast, Fillet, Bones)
+# No separate parts sheet needed
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-SERVICE_ACCOUNT_FILE = 'service-account.json'
+SERVICE_ACCOUNT_FILE = 'pullus-pipeline-40a5302e034d.json'
 
 # Set up data directory for state persistence
 DATA_DIR = os.getenv('GITHUB_WORKSPACE', os.getcwd())
@@ -39,10 +40,10 @@ ENCRYPTED_STATES_DIR = os.path.join(DATA_DIR, 'encrypted_states')
 os.makedirs(ENCRYPTED_STATES_DIR, exist_ok=True)
 
 # Encrypted state files
-STOCK_STATE_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'stock_state.enc')
-PARTS_STATE_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'parts_state.enc')
+BALANCE_STATE_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'balance_state.enc')  # Combined stock and parts
 WHOLE_CHICKEN_DIFF_STATE_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'whole_chicken_diff_state.enc')
-GIZZARD_DIFF_STATE_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'gizzard_diff_state.enc')
+GIZZARD_PACKS_DIFF_STATE_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'gizzard_packs_diff_state.enc')
+GIZZARD_WEIGHT_DIFF_STATE_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'gizzard_weight_diff_state.enc')
 FAILED_WEBHOOKS_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'failed_webhooks.enc')
 STATE_READ_FAILURE_ALERT_FILE = os.path.join(ENCRYPTED_STATES_DIR, 'state_read_failure_alert.json')
 
@@ -141,6 +142,145 @@ def commit_encrypted_state_files():
 class APIError(Exception):
     """Custom exception for API related errors."""
     pass
+
+def parse_balance_data(data):
+    """
+    Parse the multi-row header structure from the Balance sheet.
+
+    Structure:
+    - Row 0 (index 0): Product names (WHOLE CHICKEN - BELOW 1KG, GIZZARD, WINGS, etc.)
+    - Row 1 (index 1): "TOTAL" labels
+    - Row 2 (index 2): Grade names (Grade A, Grade B, Grade C, Grade D)
+    - Row 3 (index 3): Balance data (the actual numbers)
+    - Row 4 (index 4): Metric names (Qty, Weight(kg), Packs)
+
+    Returns: List of column objects with structure:
+    [{
+        'col_index': int,
+        'product': str,
+        'grade': str,
+        'metric': str,
+        'value': str
+    }, ...]
+    """
+    if not data or len(data) < 5:
+        return []
+
+    row_product = data[0]  # Row 1: Product names
+    row_total = data[1]    # Row 2: TOTAL labels
+    row_grade = data[2]    # Row 3: Grade names
+    row_data = data[3]     # Row 4: Balance data
+    row_metric = data[4]   # Row 5: Metric names
+
+    parsed_columns = []
+    current_product = ""
+    current_grade = ""
+
+    # Iterate over the longest row (usually row_data or row_metric)
+    max_cols = max(len(row_product), len(row_grade), len(row_data), len(row_metric))
+
+    for i in range(max_cols):
+        # Track current product
+        if i < len(row_product) and row_product[i] and row_product[i].strip():
+            current_product = row_product[i].strip()
+
+        # Skip DATE and NOTES columns
+        if current_product in ['DATE', 'NOTES']:
+            continue
+
+        # Track current grade (grade cells span multiple columns, so we need to remember)
+        grade_cell = row_grade[i].strip() if i < len(row_grade) and row_grade[i] else ""
+        if grade_cell:
+            current_grade = grade_cell
+
+        # Get metric
+        metric = row_metric[i].strip() if i < len(row_metric) and row_metric[i] else ""
+        value = row_data[i].strip() if i < len(row_data) and row_data[i] else "0"
+
+        # Include columns that have product, grade (current), and metric
+        if current_product and current_grade and metric:
+            parsed_columns.append({
+                'col_index': i,
+                'product': current_product,
+                'grade': current_grade,
+                'metric': metric,
+                'value': value
+            })
+
+    return parsed_columns
+
+def get_product_categories(data):
+    """
+    Get list of unique product categories from Balance sheet.
+
+    Returns: Dict with product categories and their column ranges:
+    {
+        'WHOLE CHICKEN': {
+            'weights': ['BELOW 1KG', '1KG', '1.1KG', ...],
+            'col_start': int,
+            'col_end': int
+        },
+        'GIZZARD': {...},
+        'WINGS': {...},
+        ...
+    }
+    """
+    if not data or len(data) < 1:
+        return {}
+
+    row_product = data[0]
+    products = {}
+    current_product = ""
+    product_start = 0
+
+    for i in range(len(row_product)):
+        if row_product[i] and row_product[i].strip():
+            product_name = row_product[i].strip()
+
+            # Skip DATE and NOTES
+            if product_name in ['DATE', 'NOTES']:
+                continue
+
+            # Save previous product if exists
+            if current_product and current_product not in products:
+                products[current_product] = {
+                    'col_start': product_start,
+                    'col_end': i - 1
+                }
+
+            # Start tracking new product
+            current_product = product_name
+            product_start = i
+
+    # Save the last product
+    if current_product:
+        products[current_product] = {
+            'col_start': product_start,
+            'col_end': len(row_product) - 1
+        }
+
+    # Separate whole chicken weights from product name
+    whole_chicken_products = {}
+    other_products = {}
+
+    for product, info in products.items():
+        if 'WHOLE CHICKEN' in product:
+            # Extract weight from product name
+            weight = product.replace('WHOLE CHICKEN - ', '').strip()
+            if 'WHOLE CHICKEN' not in whole_chicken_products:
+                whole_chicken_products['WHOLE CHICKEN'] = {'weights': [], 'ranges': {}}
+            whole_chicken_products['WHOLE CHICKEN']['weights'].append(weight)
+            whole_chicken_products['WHOLE CHICKEN']['ranges'][weight] = info
+        else:
+            other_products[product] = info
+
+    # Combine results
+    result = {}
+    if whole_chicken_products:
+        result.update(whole_chicken_products)
+    result.update(other_products)
+
+    return result
 
 def is_rate_limit_error(exception):
     """Check if the exception is a rate limit error"""
@@ -269,15 +409,15 @@ def get_sheet_data(service, sheet_name, range_name):
                 range=f'{sheet_name}!{range_name}'
             ).execute()
             return result.get('values', [])
-        
+
         data = robust_api_call(_fetch_data)
-        
-        # Validate data structure
-        min_rows = 2  # Both stock and parts sheets now have 2 rows
+
+        # Validate data structure for multi-row headers (5 rows: product, total, grade, data, metric)
+        min_rows = 5
         if not data or len(data) < min_rows:
-            raise APIError(f"Invalid data structure received from Google Sheets for {sheet_name}")
-            
-        print(f"Data fetched successfully from {sheet_name}")
+            raise APIError(f"Invalid data structure received from Google Sheets for {sheet_name} (expected {min_rows} rows, got {len(data) if data else 0})")
+
+        print(f"Data fetched successfully from {sheet_name} ({len(data)} rows, {len(data[0]) if data else 0} columns)")
         return data
     except HttpError as e:
         print(f"Google Sheets API error: {str(e)}")
@@ -303,10 +443,10 @@ def load_previous_state(state_file):
                         print("Invalid difference state data found, treating as no previous state")
                         return None
                 else:
-                    # Stock and parts state files expect 2 rows
-                    min_rows = 2
+                    # Balance state file expects 5 rows (multi-row header structure)
+                    min_rows = 5
                     if not data or len(data) < min_rows:
-                        print("Invalid state data found, treating as no previous state")
+                        print(f"Invalid state data found (expected {min_rows} rows, got {len(data) if data else 0}), treating as no previous state")
                         return None
                 print("Previous state loaded and decrypted successfully")
                 return data
@@ -328,10 +468,10 @@ def save_current_state(state, state_file):
             print("Invalid difference state data, skipping save")
             return
     else:
-        # Stock and parts state files expect 2 rows
-        min_rows = 2
+        # Balance state file expects 5 rows (multi-row header structure)
+        min_rows = 5
         if not state or len(state) < min_rows:
-            print("Invalid state data, skipping save")
+            print(f"Invalid state data (expected {min_rows} rows, got {len(state) if state else 0}), skipping save")
             return
 
     print(f"Encrypting and saving current state to {state_file}")
@@ -345,121 +485,79 @@ def save_current_state(state, state_file):
         print(f"Error encrypting/saving state: {str(e)}")
         raise APIError("Failed to save encrypted state file")
 
-def detect_stock_changes(previous_data, current_data):
-    """Detect changes between previous and current stock data."""
+def detect_balance_changes(previous_data, current_data):
+    """
+    Detect changes between previous and current balance data (stock and parts combined).
+    Returns structured changes with product, grade, and metric information.
+    """
     if not previous_data:
-        print("No previous stock data available")
+        print("No previous balance data available")
         return []
-    
-    try:
-        changes = []
-        # Skip header row and compare the balance row
-        prev_row = previous_data[1]
-        curr_row = current_data[1]
-        headers = current_data[0]
-        
-        # Validate data lengths
-        if len(prev_row) != len(curr_row) or len(headers) != len(curr_row):
-            print(f"Data length mismatch - Previous: {len(prev_row)}, Current: {len(curr_row)}, Headers: {len(headers)}")
-            print("Resetting previous stock state file to match new structure.")
-            save_current_state(current_data, STOCK_STATE_FILE)
-            return []
-        
-        print("\nComparing stock states...")
-        
-        # Compare each value and convert to same type before comparison
-        for i in range(len(prev_row)):
-            # Convert both values to strings for comparison to avoid type mismatches
-            prev_val = str(prev_row[i]).strip()
-            curr_val = str(curr_row[i]).strip()
-            
-            if prev_val != curr_val:
-                changes.append((headers[i], prev_row[i], curr_row[i]))
-                print(f"Change detected in {headers[i]}")
-        
-        if changes:
-            print(f"Detected {len(changes)} stock changes")
-        else:
-            print("No changes detected in stock balance")
-        return changes
-    except Exception as e:
-        print(f"Error detecting stock changes: {str(e)}")
-        raise APIError("Failed to compare stock states")
 
-def detect_parts_changes(previous_data, current_data):
-    """Detect changes between previous and current parts data."""
-    if not previous_data:
-        print("No previous parts data available")
-        return []
-    
     try:
-        changes = []
-        # Get part headers from row 1 (starting from column B which is index 1)
-        part_headers = []
-        if len(current_data) > 0 and len(current_data[0]) > 1:
-            part_headers = current_data[0][1:]  # Skip "Parts Type" column
-        
-        # Get previous values from row 2 (starting from column B which is index 1)
-        prev_values = []
-        if len(previous_data) > 1 and len(previous_data[1]) > 1:
-            prev_values = previous_data[1][1:]  # Skip "Balance" label
-        
-        # Get current values from row 2 (starting from column B which is index 1)
-        curr_values = []
-        if len(current_data) > 1 and len(current_data[1]) > 1:
-            curr_values = current_data[1][1:]  # Skip "Balance" label
-        
         # Validate data structure
-        if len(part_headers) != len(curr_values):
-            print(f"Warning: Mismatch between parts ({len(part_headers)}) and values ({len(curr_values)})")
-            # Use the shorter length for comparison
-            compare_length = min(len(part_headers), len(curr_values))
-            # Trim the arrays to the same length
-            part_headers = part_headers[:compare_length]
-            curr_values = curr_values[:compare_length]
-            prev_values = prev_values[:compare_length] if len(prev_values) > compare_length else prev_values
-        
-        # If previous values array is shorter than current, pad it
-        if len(prev_values) < len(curr_values):
-            print(f"Warning: Previous values array ({len(prev_values)}) shorter than current ({len(curr_values)})")
-            # Pad with empty strings
-            prev_values = prev_values + [''] * (len(curr_values) - len(prev_values))
-        # If previous values array is longer, trim it
-        elif len(prev_values) > len(curr_values):
-            print(f"Warning: Previous values array ({len(prev_values)}) longer than current ({len(curr_values)})")
-            prev_values = prev_values[:len(curr_values)]
-            
-        print("\nComparing parts states...")
-        
-        # Compare each value and detect changes
-        for i in range(len(part_headers)):
-            if i >= len(prev_values) or i >= len(curr_values):
-                print(f"Warning: Index {i} out of bounds. Skipping comparison.")
-                continue
-                
-            # Convert both values to strings for comparison to avoid type mismatches
-            prev_val = str(prev_values[i]).strip()
-            curr_val = str(curr_values[i]).strip()
-            
+        if len(previous_data) < 5 or len(current_data) < 5:
+            print(f"Invalid data structure - Previous: {len(previous_data)} rows, Current: {len(current_data)} rows")
+            print("Resetting previous balance state file to match new structure.")
+            save_current_state(current_data, BALANCE_STATE_FILE)
+            return []
+
+        # Check if column count changed significantly (schema change)
+        prev_col_count = len(previous_data[0]) if previous_data else 0
+        curr_col_count = len(current_data[0]) if current_data else 0
+
+        if abs(prev_col_count - curr_col_count) > 10:  # Allow small differences, but reset on major changes
+            print(f"Schema change detected - Previous: {prev_col_count} columns, Current: {curr_col_count} columns")
+            print("Resetting balance state file to match new structure.")
+            save_current_state(current_data, BALANCE_STATE_FILE)
+            return []
+
+        print("\nComparing balance states...")
+
+        # Parse both datasets
+        prev_columns = parse_balance_data(previous_data)
+        curr_columns = parse_balance_data(current_data)
+
+        # Create dictionaries for easy comparison
+        prev_dict = {}
+        for col in prev_columns:
+            key = f"{col['product']}|{col['grade']}|{col['metric']}"
+            prev_dict[key] = col['value']
+
+        curr_dict = {}
+        for col in curr_columns:
+            key = f"{col['product']}|{col['grade']}|{col['metric']}"
+            curr_dict[key] = col['value']
+
+        # Detect changes
+        changes = []
+        for key in curr_dict:
+            curr_val = str(curr_dict[key]).strip()
+            prev_val = str(prev_dict.get(key, "")).strip()
+
             if prev_val != curr_val:
-                changes.append((part_headers[i], prev_values[i], curr_values[i]))
-                print(f"Change detected in {part_headers[i]}")
-        
-        # Total is now included in the part headers and values, so no separate check needed
-        
+                # Parse key back into components
+                product, grade, metric = key.split('|')
+                changes.append({
+                    'product': product,
+                    'grade': grade,
+                    'metric': metric,
+                    'old_value': prev_val,
+                    'new_value': curr_val
+                })
+                print(f"Change detected: {product} - {grade} - {metric}: {prev_val} → {curr_val}")
+
         if changes:
-            print(f"Detected {len(changes)} parts changes")
+            print(f"Detected {len(changes)} balance changes")
         else:
-            print("No changes detected in parts weights")
+            print("No changes detected in balance")
+
         return changes
     except Exception as e:
-        print(f"Error detecting parts changes: {str(e)}")
-        print("Attempting to reset parts state file for next run...")
-        # Save current state to recover from this error
-        save_current_state(current_data, PARTS_STATE_FILE)
-        print("Parts state file updated with current data. Next run should work correctly.")
-        # Return empty changes to avoid further errors
-        return []
+        print(f"Error detecting balance changes: {str(e)}")
+        raise APIError("Failed to compare balance states")
+
+# Old detect_parts_changes function removed - parts are now handled by detect_balance_changes
 
 def detect_chicken_difference_changes(previous_chicken_diff, current_chicken_diff):
     """Detect changes between previous and current whole chicken inventory balance difference."""
@@ -485,27 +583,35 @@ def detect_chicken_difference_changes(previous_chicken_diff, current_chicken_dif
         print(f"Error detecting whole chicken difference changes: {str(e)}")
         raise APIError("Failed to compare whole chicken difference states")
 
-def detect_gizzard_difference_changes(previous_gizzard_diff, current_gizzard_diff):
-    """Detect changes between previous and current gizzard inventory balance difference."""
-    if previous_gizzard_diff is None:
-        print("No previous gizzard difference data available")
-        return []
-    
+def detect_gizzard_difference_changes(previous_gizzard_packs_diff, current_gizzard_packs_diff,
+                                     previous_gizzard_weight_diff, current_gizzard_weight_diff):
+    """Detect changes between previous and current gizzard inventory balance differences.
+    Handles both packs and weight differences.
+    Returns: List of tuples (change_type, old_value, new_value)
+    """
+    changes = []
+
     try:
-        changes = []
-        
         print("\nComparing gizzard difference states...")
-        
-        if current_gizzard_diff is not None:
+
+        # Check packs difference changes
+        if previous_gizzard_packs_diff is not None and current_gizzard_packs_diff is not None:
             # Use small tolerance for floating point comparison
-            if abs(previous_gizzard_diff - current_gizzard_diff) >= 0.01:
-                changes.append(('Gizzard Balance Difference', previous_gizzard_diff, current_gizzard_diff))
-                print(f"Change detected in Gizzard Balance Difference")
-        
+            if abs(previous_gizzard_packs_diff - current_gizzard_packs_diff) >= 0.01:
+                changes.append(('Gizzard Packs Balance Difference', previous_gizzard_packs_diff, current_gizzard_packs_diff))
+                print(f"Change detected in Gizzard Packs Balance Difference")
+
+        # Check weight difference changes
+        if previous_gizzard_weight_diff is not None and current_gizzard_weight_diff is not None:
+            # Use small tolerance for floating point comparison
+            if abs(previous_gizzard_weight_diff - current_gizzard_weight_diff) >= 0.01:
+                changes.append(('Gizzard Weight Balance Difference', previous_gizzard_weight_diff, current_gizzard_weight_diff))
+                print(f"Change detected in Gizzard Weight Balance Difference")
+
         if changes:
             print(f"Detected {len(changes)} gizzard difference changes")
         else:
-            print("No changes detected in gizzard inventory balance difference")
+            print("No changes detected in gizzard inventory balance differences")
         return changes
     except Exception as e:
         print(f"Error detecting gizzard difference changes: {str(e)}")
@@ -577,7 +683,9 @@ def get_inventory_balance(service):
         return None
 
 def get_gizzard_inventory_balance(service):
-    """Fetch and calculate gizzard weight balance from the inventory sheet."""
+    """Fetch gizzard packs and weight balance from the inventory sheet.
+    Returns: Tuple of (packs_balance, weight_balance)
+    """
     try:
         def _fetch_gizzard_data():
             result = service.spreadsheets().values().get(
@@ -585,114 +693,227 @@ def get_gizzard_inventory_balance(service):
                 range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
             ).execute()
             return result.get('values', [])
-        
+
         data = robust_api_call(_fetch_gizzard_data)
         if not data:
             print("No data found in inventory sheet for gizzard")
-            return None
-            
+            return None, None
+
         # Get the header row to find the column indices
         if len(data) < 2:  # Need at least header row and one data row
             print("Not enough rows in inventory sheet for gizzard")
-            return None
-            
+            return None, None
+
         headers = data[0]
+
+        # Try to find both packs and weight columns
+        gizzard_packs_col = None
+        gizzard_weight_col = None
+        year_month_col = None
+
         try:
-            gizzard_col_index = headers.index('gizzard_weight_stock_balance')
-            year_month_col_index = headers.index('year_month')
-        except ValueError as e:
-            print(f"Could not find required column in inventory sheet for gizzard: {str(e)}")
-            return None
-            
+            year_month_col = headers.index('year_month')
+        except ValueError:
+            print("Could not find year_month column in inventory sheet")
+            return None, None
+
+        # Check for gizzard quantity/packs column
+        try:
+            gizzard_packs_col = headers.index('gizzard_quantity_stock_balance')
+            print("Found gizzard_quantity_stock_balance column")
+        except ValueError:
+            print("gizzard_quantity_stock_balance column not found (this is OK if not tracked)")
+
+        # Check for gizzard weight column
+        try:
+            gizzard_weight_col = headers.index('gizzard_weight_stock_balance')
+            print("Found gizzard_weight_stock_balance column")
+        except ValueError:
+            print("Warning: gizzard_weight_stock_balance column not found")
+
         # Get current year-month in YYYY-MM format
         current_date = datetime.now(pytz.UTC).astimezone(pytz.timezone('Africa/Lagos'))
         current_year_month = current_date.strftime('%Y-%m')
-        
+
         # Find the row for the current month
         data_rows = data[1:]  # Skip header row
         current_month_row = None
-        
+
         for row in data_rows:
-            if len(row) > year_month_col_index and row[year_month_col_index] == current_year_month:
+            if len(row) > year_month_col and row[year_month_col] == current_year_month:
                 current_month_row = row
                 break
-        
+
         if not current_month_row:
             print(f"Warning: No data found for current month ({current_year_month}) for gizzard")
             # Sort by year_month in descending order to get the most recent record as fallback
-            sorted_data = sorted(data_rows, 
-                               key=lambda x: x[year_month_col_index] if len(x) > year_month_col_index else '', 
+            sorted_data = sorted(data_rows,
+                               key=lambda x: x[year_month_col] if len(x) > year_month_col else '',
                                reverse=True)
             if sorted_data:
                 current_month_row = sorted_data[0]
-                print(f"Using most recent available data from {current_month_row[year_month_col_index]} for gizzard")
+                print(f"Using most recent available data from {current_month_row[year_month_col]} for gizzard")
             else:
-                return None
-        
-        if len(current_month_row) > gizzard_col_index:
+                return None, None
+
+        # Extract packs balance
+        packs_balance = None
+        if gizzard_packs_col is not None and len(current_month_row) > gizzard_packs_col:
             try:
-                balance = float(current_month_row[gizzard_col_index])
-                return balance
+                packs_balance = float(current_month_row[gizzard_packs_col])
             except (ValueError, TypeError):
-                print("Invalid gizzard balance value in inventory sheet")
-                return None
-        return None
+                print("Invalid gizzard packs balance value in inventory sheet")
+
+        # Extract weight balance
+        weight_balance = None
+        if gizzard_weight_col is not None and len(current_month_row) > gizzard_weight_col:
+            try:
+                weight_balance = float(current_month_row[gizzard_weight_col])
+            except (ValueError, TypeError):
+                print("Invalid gizzard weight balance value in inventory sheet")
+
+        return packs_balance, weight_balance
+
     except Exception as e:
         print(f"Error fetching gizzard inventory balance: {str(e)}")
-        return None
+        return None, None
 
 def calculate_total_pieces(stock_data):
-    """Calculate total pieces from stock data, excluding Gizzard."""
+    """
+    Calculate total whole chicken pieces from stock data across ALL grades and weight ranges.
+    Uses the new multi-row header structure.
+    """
     try:
-        headers = stock_data[0]
-        values = stock_data[1]
+        # Parse the balance data
+        parsed_columns = parse_balance_data(stock_data)
+
         total = 0
-        
-        for i in range(len(headers)):
-            header = headers[i].lower()
-            if header != 'specification' and header != 'gizzard' and header != 'total':
+
+        # Sum all whole chicken Qty columns across all grades and weight ranges
+        for col in parsed_columns:
+            product = col['product']
+            metric = col['metric']
+            value = col['value']
+
+            # Only count whole chicken quantities
+            if 'WHOLE CHICKEN' in product and metric == 'Qty':
                 try:
-                    val = values[i]
-                    if str(val).strip().replace(',', '').isdigit():
-                        total += int(float(val))
+                    qty = float(value) if value else 0
+                    total += qty
                 except (ValueError, TypeError):
                     continue
-        return total
+
+        return int(total)
     except Exception as e:
         print(f"Error calculating total pieces: {str(e)}")
         return None
 
-def calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_balance):
-    """Calculate current inventory balance differences."""
+def calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_packs, gizzard_inventory_weight):
+    """Calculate current inventory balance differences.
+    Returns: Tuple of (whole_chicken_diff, gizzard_packs_diff, gizzard_weight_diff)
+    """
     try:
         # Calculate whole chicken difference
         total_pieces = calculate_total_pieces(stock_data)
         whole_chicken_diff = None
         if total_pieces is not None and inventory_balance is not None:
             whole_chicken_diff = int(total_pieces - inventory_balance)
-        
-        # Calculate gizzard difference
-        headers = stock_data[0]
-        values = stock_data[1]
+
+        # Calculate gizzard differences - sum all gizzard packs and weight across all grades
+        parsed_columns = parse_balance_data(stock_data)
+        current_gizzard_packs = 0
         current_gizzard_weight = 0
-        gizzard_diff = None
-        
-        for i in range(len(headers)):
-            if headers[i].lower() == 'gizzard':
+        gizzard_packs_diff = None
+        gizzard_weight_diff = None
+
+        for col in parsed_columns:
+            product = col['product']
+            metric = col['metric']
+            value = col['value']
+
+            # Sum all gizzard packs
+            if product == 'GIZZARD' and metric == 'Packs':
                 try:
-                    current_gizzard_weight = float(values[i])
-                    break
+                    packs = float(value) if value else 0
+                    current_gizzard_packs += packs
                 except (ValueError, TypeError):
-                    current_gizzard_weight = 0
-                    break
-        
-        if current_gizzard_weight > 0 and gizzard_inventory_balance is not None:
-            gizzard_diff = current_gizzard_weight - gizzard_inventory_balance
-        
-        return whole_chicken_diff, gizzard_diff
+                    continue
+
+            # Sum all gizzard weights
+            if product == 'GIZZARD' and metric == 'Weight(kg)':
+                try:
+                    weight = float(value) if value else 0
+                    current_gizzard_weight += weight
+                except (ValueError, TypeError):
+                    continue
+
+        # Calculate packs difference
+        if current_gizzard_packs > 0 and gizzard_inventory_packs is not None:
+            gizzard_packs_diff = current_gizzard_packs - gizzard_inventory_packs
+
+        # Calculate weight difference
+        if current_gizzard_weight > 0 and gizzard_inventory_weight is not None:
+            gizzard_weight_diff = current_gizzard_weight - gizzard_inventory_weight
+
+        return whole_chicken_diff, gizzard_packs_diff, gizzard_weight_diff
     except Exception as e:
         print(f"Error calculating current differences: {str(e)}")
-        return None, None
+        return None, None, None
+
+def format_change_description(change):
+    """
+    Format a single change object into readable text.
+    Change format: {'product': str, 'grade': str, 'metric': str, 'old_value': str, 'new_value': str}
+    """
+    product = change['product']
+    grade = change['grade']
+    metric = change['metric']
+    old_val = change['old_value']
+    new_val = change['new_value']
+
+    # Extract weight range for whole chicken
+    weight_range = ""
+    if 'WHOLE CHICKEN' in product:
+        weight_range = product.replace('WHOLE CHICKEN - ', '')
+        product_display = f"Whole Chicken - {weight_range}"
+    else:
+        product_display = product.title()
+
+    # Format grade display
+    grade_display = grade.replace('(Standard Bird)', '').replace('(Standard Gizzard)', '').replace('(Standard Wings)', '').replace('(Standard Laps)', '').replace('(Standard Breast)', '').replace('(Standard Fillet)', '').replace('(Standard Bones)', '').strip()
+
+    # Format values based on metric
+    try:
+        if metric == 'Qty':
+            # Quantity - format as pieces
+            old_num = float(old_val) if old_val else 0
+            new_num = float(new_val) if new_val else 0
+            old_suffix = " piece" if old_num == 1 else " pieces"
+            new_suffix = " piece" if new_num == 1 else " pieces"
+            old_str = f"{int(old_num):,}{old_suffix}"
+            new_str = f"{int(new_num):,}{new_suffix}"
+        elif metric == 'Weight(kg)':
+            # Weight - format as kg
+            old_num = float(old_val) if old_val else 0
+            new_num = float(new_val) if new_val else 0
+            old_str = f"{old_num:,.2f} kg"
+            new_str = f"{new_num:,.2f} kg"
+        elif metric == 'Packs':
+            # Packs - format as packs
+            old_num = float(old_val) if old_val else 0
+            new_num = float(new_val) if new_val else 0
+            old_suffix = " pack" if old_num == 1 else " packs"
+            new_suffix = " pack" if new_num == 1 else " packs"
+            old_str = f"{old_num:,.1f}{old_suffix}"
+            new_str = f"{new_num:,.1f}{new_suffix}"
+        else:
+            old_str = str(old_val)
+            new_str = str(new_val)
+    except (ValueError, TypeError):
+        old_str = str(old_val)
+        new_str = str(new_val)
+
+    return f"• {product_display} - {grade_display} - {metric}: {old_str} → {new_str}"
 
 def get_weight_per_piece(category_name):
     """Get weight per piece for a given category and whether it's an approximation."""
@@ -718,272 +939,528 @@ def get_weight_per_piece(category_name):
     # Default fallback (shouldn't happen with proper data)
     return 1.0, True, "1kg/piece"
 
-def format_stock_section(stock_changes, stock_data, inventory_balance=None, gizzard_inventory_balance=None):
-    """Format the stock section of the alert message."""
-    section = ""
-    
-    # Add stock changes if any
-    if stock_changes:
-        section += "*Stock Balance Changes:*\n"
-        for spec, old_val, new_val in stock_changes:
-            # Capitalize first letter of specification
-            spec = spec.title()
-            
-            # Check if this is a weight-based value (like Gizzard)
-            is_weight = spec.lower() == "gizzard"
-            
-            # Try to convert values to numbers and append appropriate units
-            try:
-                if is_weight:
-                    # Handle weight values (in kg)
-                    old_val_num = float(old_val) if str(old_val).strip().replace('.', '', 1).isdigit() else None
-                    new_val_num = float(new_val) if str(new_val).strip().replace('.', '', 1).isdigit() else None
-                    
-                    if old_val_num is not None:
-                        old_val_str = f"{old_val_num:,.2f} kg"
-                    else:
-                        old_val_str = str(old_val)
-                        
-                    if new_val_num is not None:
-                        new_val_str = f"{new_val_num:,.2f} kg"
-                    else:
-                        new_val_str = str(new_val)
-                else:
-                    # Handle piece-based values
-                    old_val_num = float(old_val) if str(old_val).strip().replace(',', '').isdigit() else None
-                    new_val_num = float(new_val) if str(new_val).strip().replace(',', '').isdigit() else None
-                    
-                    if old_val_num is not None:
-                        old_suffix = " piece" if old_val_num == 1 else " pieces"
-                        old_val_str = f"{old_val_num:,.0f}{old_suffix}"
-                    else:
-                        old_val_str = str(old_val)
-                        
-                    if new_val_num is not None:
-                        new_suffix = " piece" if new_val_num == 1 else " pieces"
-                        new_val_str = f"{new_val_num:,.0f}{new_suffix}"
-                    else:
-                        new_val_str = str(new_val)
-                
-                section += f"• {spec}: {old_val_str} → {new_val_str}\n"
-            except (ValueError, TypeError):
-                section += f"• {spec}: {old_val} → {new_val}\n"
-        section += "\n"
-    
-    # Always add current stock levels
-    section += "*Current Stock Levels:*\n"
-    headers = stock_data[0]
-    values = stock_data[1]
-    total_pieces = 0
-    current_gizzard_weight = 0
-    total_weight_kg = 0
-    
-    for i in range(len(headers)):
-        # Skip 'Specification' header if it exists
-        if headers[i].lower() != 'specification':
-            try:
-                # Capitalize first letter of header
-                header = headers[i].title()
-                
-                # Check if this is a weight-based value (like Gizzard)
-                is_weight = header.lower() == "gizzard"
-                
-                # Try to convert value to number and format appropriately
-                val = values[i]
-                if is_weight:
-                    # Handle weight values (in kg)
-                    if str(val).strip().replace('.', '', 1).isdigit():
-                        current_gizzard_weight = float(val)
-                        total_weight_kg += current_gizzard_weight
-                        formatted_val = f"{current_gizzard_weight:,.2f} kg"
-                    else:
-                        formatted_val = str(val)
-                else:
-                    # Handle piece-based values
-                    if str(val).strip().replace(',', '').isdigit():
-                        total_pieces = int(float(val)) if header.lower() == 'total' else total_pieces
-                        total_val = int(float(val))
-                        bags = total_val // 20
-                        remaining_pieces = total_val % 20
-                        
-                        # Use proper singular/plural forms
-                        bags_text = "1 bag" if bags == 1 else f"{bags:,} bags"
-                        pieces_text = "1 piece" if remaining_pieces == 1 else f"{remaining_pieces} pieces"
-                        
-                        if bags > 0 and remaining_pieces > 0:
-                            base_formatted_val = f"{bags_text}, {pieces_text}"
-                        elif bags > 0:
-                            base_formatted_val = bags_text
-                        else:
-                            base_formatted_val = pieces_text
-                        
-                        # Handle Total line differently - show accumulated total weight with tonnes
-                        if header.lower() == 'total':
-                            # For Total line, show bags/pieces with total weight in kg and tonnes
-                            total_tonnes = total_weight_kg / 1000
-                            formatted_val = f"{base_formatted_val} (≈ {total_weight_kg:,.1f} kg / {total_tonnes:.1f} tonnes)"
-                        else:
-                            # Calculate weight for this category
-                            weight_per_piece, is_approx, approx_text = get_weight_per_piece(header)
-                            total_weight = total_val * weight_per_piece
-                            total_weight_kg += total_weight
-                            
-                            # Format weight display
-                            if is_approx:
-                                weight_display = f"≈ {total_weight:,.1f} kg @ {approx_text}"
-                            else:
-                                weight_display = f"{total_weight:,.1f} kg"
-                            
-                            formatted_val = f"{base_formatted_val} ({weight_display})"
-                    else:
-                        formatted_val = str(val)
-                section += f"• {header}: {formatted_val}\n"
-            except (ValueError, TypeError):
-                section += f"• {headers[i].title()}: {values[i]}\n"
-    
-    # Add inventory balance comparison if available
+def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_inventory_packs, gizzard_inventory_weight, chicken_difference_changes, gizzard_difference_changes):
+    """Build a comprehensive Google Chat card with all inventory information."""
+
+    # Get current time
+    wat_tz = pytz.timezone('Africa/Lagos')
+    current_time = datetime.now(pytz.UTC).astimezone(wat_tz)
+    timestamp = current_time.strftime('%Y-%m-%d %I:%M:%S %p WAT')
+
+    parsed_columns = parse_balance_data(balance_data)
+    total_pieces = calculate_total_pieces(balance_data)
+
+    # Calculate severity level for color coding
+    chicken_discrepancy = 0
+    gizzard_packs_discrepancy = 0
+    gizzard_weight_discrepancy = 0
+
     if inventory_balance is not None and total_pieces > 0:
-        section += "\n*Whole Chicken Stock Balance Comparison:*\n"
-        difference = int(total_pieces - inventory_balance)  # Convert to integer
-        if difference == 0:
-            section += "✅ Whole chicken stock balance matches inventory records\n"
-        else:
-            section += f"⚠️ Whole chicken stock balance discrepancy detected:\n"
-            section += f"• Specification Sheet Total: {total_pieces:,} pieces\n"
-            section += f"• Inventory Records Total: {int(inventory_balance):,} pieces\n"  # Convert to integer
-            section += f"• Difference: {abs(difference):,} pieces {'more' if difference > 0 else 'less'} in specification sheet\n"
-    
-    # Add gizzard inventory balance comparison if available
-    if gizzard_inventory_balance is not None and current_gizzard_weight > 0:
-        section += "\n*Gizzard Stock Balance Comparison:*\n"
-        difference = current_gizzard_weight - gizzard_inventory_balance
-        if abs(difference) < 0.01:  # Allow for small floating point differences
-            section += "✅ Gizzard stock balance matches inventory records\n"
-        else:
-            section += f"⚠️ Gizzard stock balance discrepancy detected:\n"
-            section += f"• Specification Sheet Gizzard: {current_gizzard_weight:,.2f} kg\n"
-            section += f"• Inventory Records Gizzard: {gizzard_inventory_balance:,.2f} kg\n"
-            section += f"• Difference: {abs(difference):,.2f} kg {'more' if difference > 0 else 'less'} in specification sheet\n"
-    
-    return section
+        chicken_discrepancy = abs(int(total_pieces - inventory_balance))
 
-def format_parts_section(parts_changes, parts_data):
-    """Format the parts section of the alert message."""
-    section = ""
-    
-    # Add parts changes if any
-    if parts_changes:
-        section += "*Parts Weight Changes:*\n"
-        for part, old_val, new_val in parts_changes:
-            # Capitalize first letter of part name
-            part = part.title()
-            
-            # Try to convert values to numbers with weight suffix
-            try:
-                # Check if values are numeric
-                if str(old_val).strip().replace('.', '', 1).isdigit():
-                    old_val_num = float(old_val)
-                    # Use "kg" for all weights as it's a unit, not a count
-                    old_val_str = f"{old_val_num:,.2f} kg"
-                else:
-                    old_val_str = str(old_val)
-                    
-                if str(new_val).strip().replace('.', '', 1).isdigit():
-                    new_val_num = float(new_val)
-                    new_val_str = f"{new_val_num:,.2f} kg"
-                else:
-                    new_val_str = str(new_val)
-                    
-                section += f"• {part}: {old_val_str} → {new_val_str}\n"
-            except (ValueError, TypeError):
-                section += f"• {part}: {old_val} → {new_val}\n"
-        section += "\n"
-    
-    # Always add current parts weights
-    section += "*Current Parts Weights:*\n"
-    
-    # Get part headers from row 1 (starting from column B which is index 1)
-    part_headers = []
-    if len(parts_data) > 0 and len(parts_data[0]) > 1:
-        part_headers = parts_data[0][1:]  # Skip "Parts Type" column
-    
-    # Get values from row 2 (starting from column B which is index 1)
-    values = []
-    if len(parts_data) > 1 and len(parts_data[1]) > 1:
-        values = parts_data[1][1:]  # Skip "Balance" label in row 2
-    
-    # Map values to headers
-    for i in range(min(len(part_headers), len(values))):
-        try:
-            # Format weight values
-            val = values[i]
-            # Capitalize part name
-            part_name = part_headers[i].title()
-            
-            if str(val).strip().replace('.', '', 1).isdigit():
-                # "kg" is always singular as it's a unit
-                formatted_val = f"{float(val):,.2f} kg"
-            else:
-                formatted_val = str(val)
-            section += f"• {part_name}: {formatted_val}\n"
-        except (ValueError, TypeError, IndexError) as e:
-            print(f"Error formatting part {i}: {str(e)}")
-            # Ensure part name is capitalized even in error case
-            part_name = part_headers[i].title() if i < len(part_headers) else 'Unknown'
-            section += f"• {part_name}: {values[i] if i < len(values) else 'N/A'}\n"
-    
-    return section
+    # Calculate current gizzard values from Balance sheet
+    current_gizzard_packs = sum(float(col['value']) for col in parsed_columns
+                                 if col['product'] == 'GIZZARD' and col['metric'] == 'Packs')
+    current_gizzard_weight = sum(float(col['value']) for col in parsed_columns
+                                  if col['product'] == 'GIZZARD' and col['metric'] == 'Weight(kg)')
 
-def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance=None, gizzard_inventory_balance=None, chicken_difference_changes=None, gizzard_difference_changes=None):
-    """Send combined alert to Google Space."""
-    try:
-        # Only proceed if there are actual changes
-        if not stock_changes and not parts_changes and not chicken_difference_changes and not gizzard_difference_changes:
-            print("No changes detected in stock, parts, or differences. No alert needed.")
-            return True
-        
-        message = "🔔 *Kaduna Inventory Changes Detected*\n\n"
-        print("Preparing combined changes message")
-        
-        # Add difference changes section if there are difference changes
+    if gizzard_inventory_packs is not None and current_gizzard_packs > 0:
+        gizzard_packs_discrepancy = abs(current_gizzard_packs - gizzard_inventory_packs)
+
+    if gizzard_inventory_weight is not None and current_gizzard_weight > 0:
+        gizzard_weight_discrepancy = abs(current_gizzard_weight - gizzard_inventory_weight)
+
+    # Determine overall severity for header color
+    # HIGH: >100 chicken pieces or >100 gizzard packs or >50kg gizzard weight discrepancy
+    # MEDIUM: >50 chicken pieces or >50 gizzard packs or >20kg gizzard weight discrepancy
+    # LOW: anything else with changes
+    severity = "LOW"
+    if chicken_discrepancy > 100 or gizzard_packs_discrepancy > 100 or gizzard_weight_discrepancy > 50:
+        severity = "HIGH"
+    elif chicken_discrepancy > 50 or gizzard_packs_discrepancy > 50 or gizzard_weight_discrepancy > 20:
+        severity = "MEDIUM"
+
+    # Build card sections
+    sections = []
+
+    # Section 1: Changes Summary
+    if balance_changes or chicken_difference_changes or gizzard_difference_changes:
+        change_widgets = []
+
+        # Balance changes summary
+        if balance_changes:
+            change_count_text = f"🔄 {len(balance_changes)} balance change(s) detected"
+            change_widgets.append({
+                "decoratedText": {
+                    "text": f"<b>{change_count_text}</b>"
+                }
+            })
+
+            # Show first 10 changes
+            for change in balance_changes[:10]:
+                change_widgets.append({
+                    "decoratedText": {
+                        "text": format_change_description(change)
+                    }
+                })
+
+            if len(balance_changes) > 10:
+                change_widgets.append({
+                    "decoratedText": {
+                        "text": f"<i>...and {len(balance_changes) - 10} more changes</i>"
+                    }
+                })
+
+        # Difference changes
         difference_changes = []
         if chicken_difference_changes:
             difference_changes.extend(chicken_difference_changes)
         if gizzard_difference_changes:
             difference_changes.extend(gizzard_difference_changes)
-            
+
         if difference_changes:
-            message += "*Inventory Balance Difference Changes:*\n"
+            change_widgets.append({"divider": {}})
+            change_widgets.append({
+                "decoratedText": {
+                    "text": "<b>Inventory Balance Difference Changes:</b>"
+                }
+            })
+
             for change_type, old_val, new_val in difference_changes:
                 if 'Chicken' in change_type:
-                    # Format whole chicken differences as pieces
                     old_suffix = " piece" if abs(old_val) == 1 else " pieces"
                     new_suffix = " piece" if abs(new_val) == 1 else " pieces"
-                    old_val_str = f"{old_val:,}{old_suffix}"
-                    new_val_str = f"{new_val:,}{new_suffix}"
+                    change_text = f"{change_type}: {old_val:,}{old_suffix} → {new_val:,}{new_suffix}"
                 else:
-                    # Format gizzard differences as kg
-                    old_val_str = f"{old_val:,.2f} kg"
-                    new_val_str = f"{new_val:,.2f} kg"
-                message += f"• {change_type}: {old_val_str} → {new_val_str}\n"
-            message += "\n"
-        
-        # Always add stock section (shows current balances regardless of what triggered alert)
-        message += format_stock_section(stock_changes, stock_data, inventory_balance, gizzard_inventory_balance)
-        message += "\n"
-        
-        # Always add parts section (shows current weights regardless of what triggered alert)
-        message += format_parts_section(parts_changes, parts_data)
-        
-        # Get current time in WAT
-        wat_tz = pytz.timezone('Africa/Lagos')
-        current_time = datetime.now(pytz.UTC).astimezone(wat_tz)
-        message += f"\n_Updated at: {current_time.strftime('%Y-%m-%d %I:%M:%S %p')} WAT_"
-        
-        payload = {
-            "text": message
+                    change_text = f"{change_type}: {old_val:,.2f} kg → {new_val:,.2f} kg"
+
+                change_widgets.append({
+                    "decoratedText": {
+                        "text": change_text,
+                        "startIcon": {"knownIcon": "STAR"}
+                    }
+                })
+
+        sections.append({
+            "header": "⚠️ Changes Detected",
+            "widgets": change_widgets
+        })
+
+    # Section 2: Whole Chicken Comparison
+    comparison_widgets = []
+
+    if inventory_balance is not None and total_pieces > 0:
+        difference = int(total_pieces - inventory_balance)
+
+        comparison_widgets.append({
+            "decoratedText": {
+                "topLabel": "Specification Sheet Total",
+                "text": f"<b>{total_pieces:,} pieces</b>"
+            }
+        })
+
+        comparison_widgets.append({
+            "decoratedText": {
+                "topLabel": "Inventory Records Total",
+                "text": f"<b>{int(inventory_balance):,} pieces</b>"
+            }
+        })
+
+        if difference == 0:
+            comparison_widgets.append({
+                "decoratedText": {
+                    "text": "<font color=\"#0F9D58\">✅ <b>Stock balance matches inventory records</b></font>",
+                    "startIcon": {"knownIcon": "CONFIRMATION_NUMBER_ICON"}
+                }
+            })
+        else:
+            # Color code based on severity
+            abs_diff = abs(difference)
+            if abs_diff > 100:
+                color = "#EA4335"  # Red for high severity
+                icon = "BOOKMARK"
+            elif abs_diff > 50:
+                color = "#FBBC04"  # Yellow for medium severity
+                icon = "DESCRIPTION"
+            else:
+                color = "#FF6D00"  # Orange for low severity
+                icon = "DESCRIPTION"
+
+            comparison_widgets.append({
+                "decoratedText": {
+                    "text": f"<font color=\"{color}\">⚠️ <b>Discrepancy: {abs_diff:,} pieces {'more' if difference > 0 else 'less'}</b></font>",
+                    "startIcon": {"knownIcon": icon}
+                }
+            })
+
+    if comparison_widgets:
+        sections.append({
+            "header": "📊 Whole Chicken Stock Comparison",
+            "collapsible": True,
+            "widgets": comparison_widgets
+        })
+
+    # Section 3: Gizzard Comparison (Packs and Weight)
+    gizzard_widgets = []
+
+    # Packs comparison
+    if gizzard_inventory_packs is not None and current_gizzard_packs > 0:
+        packs_difference = current_gizzard_packs - gizzard_inventory_packs
+
+        gizzard_widgets.append({
+            "decoratedText": {
+                "text": "<b>Packs Comparison:</b>"
+            }
+        })
+
+        gizzard_widgets.append({
+            "decoratedText": {
+                "topLabel": "Specification Sheet Total (Packs)",
+                "text": f"<b>{current_gizzard_packs:,.1f} packs</b>"
+            }
+        })
+
+        gizzard_widgets.append({
+            "decoratedText": {
+                "topLabel": "Inventory Records Total (Packs)",
+                "text": f"<b>{gizzard_inventory_packs:,.1f} packs</b>"
+            }
+        })
+
+        if abs(packs_difference) < 0.01:
+            gizzard_widgets.append({
+                "decoratedText": {
+                    "text": "<font color=\"#0F9D58\">✅ <b>Packs balance matches inventory records</b></font>",
+                    "startIcon": {"knownIcon": "CONFIRMATION_NUMBER_ICON"}
+                }
+            })
+        else:
+            # Color code based on severity
+            abs_diff = abs(packs_difference)
+            if abs_diff > 100:
+                color = "#EA4335"  # Red for high severity (>100 packs)
+                icon = "BOOKMARK"
+            elif abs_diff > 50:
+                color = "#FBBC04"  # Yellow for medium severity (>50 packs)
+                icon = "DESCRIPTION"
+            else:
+                color = "#FF6D00"  # Orange for low severity
+                icon = "DESCRIPTION"
+
+            gizzard_widgets.append({
+                "decoratedText": {
+                    "text": f"<font color=\"{color}\">⚠️ <b>Discrepancy: {abs_diff:,.1f} packs {'more' if packs_difference > 0 else 'less'}</b></font>",
+                    "startIcon": {"knownIcon": icon}
+                }
+            })
+
+        gizzard_widgets.append({"divider": {}})
+
+    # Weight comparison
+    if gizzard_inventory_weight is not None and current_gizzard_weight > 0:
+        weight_difference = current_gizzard_weight - gizzard_inventory_weight
+
+        gizzard_widgets.append({
+            "decoratedText": {
+                "text": "<b>Weight Comparison:</b>"
+            }
+        })
+
+        gizzard_widgets.append({
+            "decoratedText": {
+                "topLabel": "Specification Sheet Total (Weight)",
+                "text": f"<b>{current_gizzard_weight:,.2f} kg</b>"
+            }
+        })
+
+        gizzard_widgets.append({
+            "decoratedText": {
+                "topLabel": "Inventory Records Total (Weight)",
+                "text": f"<b>{gizzard_inventory_weight:,.2f} kg</b>"
+            }
+        })
+
+        if abs(weight_difference) < 0.01:
+            gizzard_widgets.append({
+                "decoratedText": {
+                    "text": "<font color=\"#0F9D58\">✅ <b>Weight balance matches inventory records</b></font>",
+                    "startIcon": {"knownIcon": "CONFIRMATION_NUMBER_ICON"}
+                }
+            })
+        else:
+            # Color code based on severity
+            abs_diff = abs(weight_difference)
+            if abs_diff > 50:
+                color = "#EA4335"  # Red for high severity (>50kg)
+                icon = "BOOKMARK"
+            elif abs_diff > 20:
+                color = "#FBBC04"  # Yellow for medium severity (>20kg)
+                icon = "DESCRIPTION"
+            else:
+                color = "#FF6D00"  # Orange for low severity
+                icon = "DESCRIPTION"
+
+            gizzard_widgets.append({
+                "decoratedText": {
+                    "text": f"<font color=\"{color}\">⚠️ <b>Discrepancy: {abs_diff:,.2f} kg {'more' if weight_difference > 0 else 'less'}</b></font>",
+                    "startIcon": {"knownIcon": icon}
+                }
+            })
+
+    if gizzard_widgets:
+        sections.append({
+            "header": "🍗 Gizzard Stock Comparison",
+            "collapsible": True,
+            "widgets": gizzard_widgets
+        })
+
+    # Section 4: Whole Chicken Details
+    chicken_widgets = build_whole_chicken_widgets(balance_data)
+    if chicken_widgets:
+        sections.append({
+            "header": "📦 Whole Chicken - Current Stock Levels",
+            "collapsible": True,
+            "widgets": chicken_widgets
+        })
+
+    # Section 5: Gizzard & Parts Details
+    parts_widgets = build_gizzard_and_parts_widgets(balance_data)
+    if parts_widgets:
+        sections.append({
+            "header": "📦 Gizzard & Parts - Current Stock Levels",
+            "collapsible": True,
+            "widgets": parts_widgets
+        })
+
+    # Section 6: Action Buttons
+    # Build Google Sheets URLs
+    spec_sheet_url = f"https://docs.google.com/spreadsheets/d/{SPECIFICATION_SHEET_ID}/edit#gid=0"
+    inventory_sheet_url = f"https://docs.google.com/spreadsheets/d/{INVENTORY_SHEET_ID}/edit#gid=0"
+
+    action_buttons = [
+        {
+            "text": "🔗 View Specification Sheet",
+            "onClick": {
+                "openLink": {
+                    "url": spec_sheet_url
+                }
+            }
+        },
+        {
+            "text": "📊 View Inventory Sheet",
+            "onClick": {
+                "openLink": {
+                    "url": inventory_sheet_url
+                }
+            }
         }
-        
+    ]
+
+    sections.append({
+        "widgets": [{
+            "buttonList": {
+                "buttons": action_buttons
+            }
+        }]
+    })
+
+    # Build the complete card with severity-based header color
+    header_config = {
+        "title": "🔔 Kaduna Inventory Alert",
+        "subtitle": f"Updated: {timestamp}"
+    }
+
+    # Add severity indicator to subtitle
+    if severity == "HIGH":
+        header_config["subtitle"] = f"🔴 HIGH PRIORITY | {timestamp}"
+    elif severity == "MEDIUM":
+        header_config["subtitle"] = f"🟡 MEDIUM PRIORITY | {timestamp}"
+    else:
+        header_config["subtitle"] = f"Updated: {timestamp}"
+
+    card = {
+        "cardsV2": [{
+            "cardId": "kaduna-inventory-alert",
+            "card": {
+                "header": header_config,
+                "sections": sections
+            }
+        }]
+    }
+
+    return card
+
+def build_whole_chicken_widgets(balance_data):
+    """Build widgets for whole chicken details section."""
+    widgets = []
+    parsed_columns = parse_balance_data(balance_data)
+
+    # Group whole chicken data by weight range
+    weight_ranges = {}
+    for col in parsed_columns:
+        if 'WHOLE CHICKEN' in col['product']:
+            weight = col['product'].replace('WHOLE CHICKEN - ', '')
+            if weight not in weight_ranges:
+                weight_ranges[weight] = []
+            weight_ranges[weight].append(col)
+
+    # Sort weight ranges
+    weight_order = ['BELOW 1KG', '1KG', '1.1KG', '1.2KG', '1.3KG', '1.4KG', '1.5KG', '1.6KG', '1.7KG', '1.8KG', '1.9KG', '2KG ABOVE', 'UNCATEGORISED']
+
+    total_qty = 0
+    total_weight_kg = 0
+
+    for weight in weight_order:
+        if weight not in weight_ranges:
+            continue
+
+        # Add weight category header
+        widgets.append({
+            "decoratedText": {
+                "text": f"<b>{weight}</b>"
+            }
+        })
+
+        # TODO: May be needed in future for approximations when Weight(kg) is unavailable
+        # weight_per_piece, is_approx, approx_text = get_weight_per_piece(weight)
+
+        # Group by grade
+        grades = {'Grade A (Standard Bird)': {}, 'Grade B': {}, 'Grade C': {}, 'Grade D': {}}
+        for col in weight_ranges[weight]:
+            grade = col['grade']
+            metric = col['metric']
+            value = col['value']
+            if grade not in grades:
+                grades[grade] = {}
+            grades[grade][metric] = value
+
+        # Display each grade
+        for grade_name in grades:
+            grade_data = grades[grade_name]
+            if not grade_data:
+                continue
+
+            grade_display = grade_name.replace('(Standard Bird)', '').strip()
+            qty = float(grade_data.get('Qty', 0))
+            weight_kg = float(grade_data.get('Weight(kg)', 0))
+
+            total_qty += qty
+            total_weight_kg += weight_kg
+
+            # Format qty as bags + pieces
+            bags = int(qty // 20)
+            remaining = int(qty % 20)
+            bags_text = f"{bags} bag" if bags == 1 else f"{bags} bags"
+            pieces_text = f"{remaining} piece" if remaining == 1 else f"{remaining} pieces"
+
+            if bags > 0 and remaining > 0:
+                qty_display = f"{bags_text}, {pieces_text}"
+            elif bags > 0:
+                qty_display = bags_text
+            else:
+                qty_display = pieces_text
+
+            widgets.append({
+                "decoratedText": {
+                    "topLabel": grade_display,
+                    "text": f"{qty_display} ({weight_kg:,.2f} kg)"
+                }
+            })
+
+    # Add totals
+    total_tonnes = total_weight_kg / 1000
+    widgets.append({"divider": {}})
+    widgets.append({
+        "decoratedText": {
+            "text": f"<b>TOTAL: {int(total_qty):,} pieces (≈ {total_weight_kg:,.1f} kg / {total_tonnes:.1f} tonnes)</b>"
+        }
+    })
+
+    return widgets
+
+def build_gizzard_and_parts_widgets(balance_data):
+    """Build widgets for gizzard and parts details section."""
+    widgets = []
+    parsed_columns = parse_balance_data(balance_data)
+
+    # Products to display (in order)
+    products_order = ['GIZZARD', 'WINGS', 'LAPS', 'BREAST', 'FILLET', 'BONES']
+
+    for product_name in products_order:
+        # Get data for this product
+        product_cols = [col for col in parsed_columns if col['product'] == product_name]
+        if not product_cols:
+            continue
+
+        # Add product header
+        widgets.append({
+            "decoratedText": {
+                "text": f"<b>{product_name.title()}</b>"
+            }
+        })
+
+        # Group by grade
+        grades = {'Grade A (Standard Gizzard)': {}, 'Grade A (Standard Wings)': {}, 'Grade A (Standard Laps)': {},
+                  'Grade A (Standard Breast)': {}, 'Grade A (Standard Fillet)': {}, 'Grade A (Standard Bones)': {},
+                  'Grade B': {}, 'Grade C': {}, 'Grade D': {}}
+
+        for col in product_cols:
+            grade = col['grade']
+            metric = col['metric']
+            value = col['value']
+            if grade not in grades:
+                grades[grade] = {}
+            grades[grade][metric] = value
+
+        # Display each grade
+        for grade_name in grades:
+            grade_data = grades[grade_name]
+            if not grade_data:
+                continue
+
+            grade_display = (grade_name.replace('(Standard Gizzard)', '')
+                            .replace('(Standard Wings)', '')
+                            .replace('(Standard Laps)', '')
+                            .replace('(Standard Breast)', '')
+                            .replace('(Standard Fillet)', '')
+                            .replace('(Standard Bones)', '').strip())
+
+            packs = float(grade_data.get('Packs', 0))
+            weight = float(grade_data.get('Weight(kg)', 0))
+
+            packs_text = f"{packs:,.1f} pack" if packs == 1 else f"{packs:,.1f} packs"
+
+            widgets.append({
+                "decoratedText": {
+                    "topLabel": grade_display,
+                    "text": f"{packs_text} ({weight:,.2f} kg)"
+                }
+            })
+
+        # Add divider between products (except last one)
+        if product_name != products_order[-1]:
+            widgets.append({"divider": {}})
+
+    return widgets
+
+def send_combined_alert(webhook_url, balance_changes, balance_data, inventory_balance=None, gizzard_inventory_packs=None, gizzard_inventory_weight=None, chicken_difference_changes=None, gizzard_difference_changes=None):
+    """Send combined alert to Google Space as a single card message."""
+    try:
+        # Only proceed if there are actual changes
+        if not balance_changes and not chicken_difference_changes and not gizzard_difference_changes:
+            print("No changes detected. No alert needed.")
+            return True
+
+        print("Preparing to send card alert message...")
+
+        # Build the card
+        card = build_card_alert(
+            balance_changes, balance_data, inventory_balance,
+            gizzard_inventory_packs, gizzard_inventory_weight,
+            chicken_difference_changes, gizzard_difference_changes
+        )
+
+        # Send card message
         @webhook_circuit_breaker
         @retry(
             retry=retry_if_exception(should_retry_webhook),
@@ -991,30 +1468,29 @@ def send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, p
             wait=wait_exponential(multiplier=1, min=1, max=30),
             before_sleep=lambda retry_state: print(f"Webhook failed, retrying in {retry_state.next_action.sleep} seconds... (attempt {retry_state.attempt_number})")
         )
-        def _send_webhook_with_circuit_breaker():
-            print("Sending webhook request...")
+        def _send_webhook(payload):
+            print(f"Sending card webhook request...")
             response = requests.post(webhook_url, json=payload, timeout=10)
-            response.raise_for_status()  # Raise exception for bad status codes
+            response.raise_for_status()
             print(f"Webhook response status: {response.status_code}")
             return response
 
-        _send_webhook_with_circuit_breaker()
-        return True
+        try:
+            print("\nSending card alert...")
+            _send_webhook(card)
+            print("✅ Card alert sent successfully")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to send card alert: {str(e)}")
+            # Save to dead letter queue
+            save_failed_webhook(card, str(e), webhook_url)
+            return False
+
     except pybreaker.CircuitBreakerOpenException:
-        print("Circuit breaker is open - webhook service appears to be down, skipping this attempt")
-
-        # Save failed webhook to dead letter queue
-        if save_failed_webhook(payload, "Circuit breaker open - service unavailable", webhook_url):
-            print("Failed webhook saved for manual review")
-
+        print("Circuit breaker is open - webhook service appears to be down")
         return False
-    except requests.exceptions.RequestException as e:
-        print(f"Error sending alert to Google Space after all retries: {str(e)}")
-
-        # Save failed webhook to dead letter queue
-        if save_failed_webhook(payload, e, webhook_url):
-            print("Failed webhook saved for manual review")
-
+    except Exception as e:
+        print(f"Error in send_combined_alert: {str(e)}")
         return False
 
 def main():
@@ -1038,49 +1514,34 @@ def main():
         print("Initializing Google Sheets service...")
         service = get_service()
         
-        # Get current stock data
-        stock_data = get_sheet_data(service, STOCK_SHEET_NAME, STOCK_RANGE)
-        
-        # Get current parts data
-        parts_data = get_sheet_data(service, PARTS_SHEET_NAME, PARTS_RANGE)
-        
+        # Get current balance data (includes stock and parts in one sheet)
+        balance_data = get_sheet_data(service, STOCK_SHEET_NAME, STOCK_RANGE)
+
         # Get inventory balance for comparison
         inventory_balance = get_inventory_balance(service)
-        
-        # Get gizzard inventory balance for comparison
-        gizzard_inventory_balance = get_gizzard_inventory_balance(service)
-        
+
+        # Get gizzard inventory balance for comparison (returns tuple: packs, weight)
+        gizzard_inventory_packs, gizzard_inventory_weight = get_gizzard_inventory_balance(service)
+
         # Load previous states
-        previous_stock_data = load_previous_state(STOCK_STATE_FILE)
-        previous_parts_data = load_previous_state(PARTS_STATE_FILE)
+        previous_balance_data = load_previous_state(BALANCE_STATE_FILE)
         previous_chicken_diff = load_previous_state(WHOLE_CHICKEN_DIFF_STATE_FILE)
-        previous_gizzard_diff = load_previous_state(GIZZARD_DIFF_STATE_FILE)
-        
-        # Calculate current differences
-        current_chicken_diff, current_gizzard_diff = calculate_current_differences(stock_data, inventory_balance, gizzard_inventory_balance)
-        
-        # Initialize flags for state updates
-        stock_state_needs_update = True
-        parts_state_needs_update = True
-        chicken_diff_state_needs_update = True
-        gizzard_diff_state_needs_update = True
-        
-        # Check for changes in stock data
-        stock_changes = []
-        if not previous_stock_data:
-            print("No previous stock state found, initializing stock state file...")
+        previous_gizzard_packs_diff = load_previous_state(GIZZARD_PACKS_DIFF_STATE_FILE)
+        previous_gizzard_weight_diff = load_previous_state(GIZZARD_WEIGHT_DIFF_STATE_FILE)
+
+        # Calculate current differences (returns: chicken_diff, gizzard_packs_diff, gizzard_weight_diff)
+        current_chicken_diff, current_gizzard_packs_diff, current_gizzard_weight_diff = calculate_current_differences(
+            balance_data, inventory_balance, gizzard_inventory_packs, gizzard_inventory_weight
+        )
+
+        # Check for changes in balance data
+        balance_changes = []
+        if not previous_balance_data:
+            print("No previous balance state found, initializing balance state file...")
         else:
-            print("Checking for stock changes...")
-            stock_changes = detect_stock_changes(previous_stock_data, stock_data)
-        
-        # Check for changes in parts data
-        parts_changes = []
-        if not previous_parts_data:
-            print("No previous parts state found, initializing parts state file...")
-        else:
-            print("Checking for parts changes...")
-            parts_changes = detect_parts_changes(previous_parts_data, parts_data)
-        
+            print("Checking for balance changes...")
+            balance_changes = detect_balance_changes(previous_balance_data, balance_data)
+
         # Check for changes in whole chicken inventory balance differences
         chicken_difference_changes = []
         if previous_chicken_diff is None:
@@ -1088,34 +1549,35 @@ def main():
         else:
             print("Checking for whole chicken difference changes...")
             chicken_difference_changes = detect_chicken_difference_changes(previous_chicken_diff, current_chicken_diff)
-        
-        # Check for changes in gizzard inventory balance differences
+
+        # Check for changes in gizzard inventory balance differences (both packs and weight)
         gizzard_difference_changes = []
-        if previous_gizzard_diff is None:
-            print("No previous gizzard difference state found, initializing state file...")
+        if previous_gizzard_packs_diff is None and previous_gizzard_weight_diff is None:
+            print("No previous gizzard difference state found, initializing state files...")
         else:
             print("Checking for gizzard difference changes...")
-            gizzard_difference_changes = detect_gizzard_difference_changes(previous_gizzard_diff, current_gizzard_diff)
-        
+            gizzard_difference_changes = detect_gizzard_difference_changes(
+                previous_gizzard_packs_diff, current_gizzard_packs_diff,
+                previous_gizzard_weight_diff, current_gizzard_weight_diff
+            )
+
         # Send combined alert if there are any changes
-        if stock_changes or parts_changes or chicken_difference_changes or gizzard_difference_changes:
+        if balance_changes or chicken_difference_changes or gizzard_difference_changes:
             print("Changes detected, sending combined alert...")
-            if send_combined_alert(webhook_url, stock_changes, stock_data, parts_changes, parts_data, inventory_balance, gizzard_inventory_balance, chicken_difference_changes, gizzard_difference_changes):
+            if send_combined_alert(webhook_url, balance_changes, balance_data, inventory_balance,
+                                 gizzard_inventory_packs, gizzard_inventory_weight,
+                                 chicken_difference_changes, gizzard_difference_changes):
                 print("Alert sent successfully, updating state files...")
             else:
                 print("Failed to send alert, but will still update state files...")
         else:
-            print("No changes detected in stock, parts, or differences, updating state files...")
-        
+            print("No changes detected, updating state files...")
+
         # Always update all state files at the end
-        if stock_state_needs_update:
-            save_current_state(stock_data, STOCK_STATE_FILE)
-        if parts_state_needs_update:
-            save_current_state(parts_data, PARTS_STATE_FILE)
-        if chicken_diff_state_needs_update:
-            save_current_state(current_chicken_diff, WHOLE_CHICKEN_DIFF_STATE_FILE)
-        if gizzard_diff_state_needs_update:
-            save_current_state(current_gizzard_diff, GIZZARD_DIFF_STATE_FILE)
+        save_current_state(balance_data, BALANCE_STATE_FILE)
+        save_current_state(current_chicken_diff, WHOLE_CHICKEN_DIFF_STATE_FILE)
+        save_current_state(current_gizzard_packs_diff, GIZZARD_PACKS_DIFF_STATE_FILE)
+        save_current_state(current_gizzard_weight_diff, GIZZARD_WEIGHT_DIFF_STATE_FILE)
 
         # Commit encrypted state files to repository
         print("Committing encrypted state files to repository...")
