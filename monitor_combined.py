@@ -1225,6 +1225,7 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
         sections.append({
             "header": "📦 Whole Chicken - Current Stock Levels",
             "collapsible": True,
+            "collapsed": False,
             "widgets": chicken_widgets
         })
 
@@ -1234,6 +1235,7 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
         sections.append({
             "header": "📦 Gizzard & Parts - Current Stock Levels",
             "collapsible": True,
+            "collapsed": False,
             "widgets": parts_widgets
         })
 
@@ -1372,9 +1374,8 @@ def build_whole_chicken_widgets(balance_data):
                 }
             })
 
-        # Add divider after each weight category (except the last one)
-        if idx < len(weights_with_data) - 1:
-            widgets.append({"divider": {}})
+        # Add divider after each weight category for better readability
+        widgets.append({"divider": {}})
 
     # Add totals
     total_tonnes = total_weight_kg / 1000
@@ -1476,9 +1477,8 @@ def build_gizzard_and_parts_widgets(balance_data):
                     }
                 })
 
-        # Add divider after product (except the last one with data)
-        if prod_idx < len(products_with_data) - 1:
-            widgets.append({"divider": {}})
+        # Add divider after each product for better readability
+        widgets.append({"divider": {}})
 
     return widgets
 
