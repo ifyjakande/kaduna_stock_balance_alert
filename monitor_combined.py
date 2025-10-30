@@ -956,7 +956,14 @@ def format_change_description(change, include_product=True):
         old_str = str(old_val)
         new_str = str(new_val)
 
-    return f"• {product_display}{grade_display} {metric_display}: {old_str}→{new_str}"
+    # Build the text and ensure it's not empty
+    text = f"• {product_display}{grade_display} {metric_display}: {old_str}→{new_str}".strip()
+
+    # Fallback if text is somehow empty (shouldn't happen, but defensive)
+    if not text or text == "•":
+        text = f"• Change: {old_str}→{new_str}"
+
+    return text
 
 def get_weight_per_piece(category_name):
     """Get weight per piece for a given category and whether it's an approximation."""
