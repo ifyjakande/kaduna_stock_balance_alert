@@ -1363,9 +1363,8 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
         })
 
     # Section 6: Action Buttons
-    # Build Google Sheets URLs
+    # Build Google Sheets URL
     spec_sheet_url = f"https://docs.google.com/spreadsheets/d/{SPECIFICATION_SHEET_ID}/edit#gid=0"
-    inventory_sheet_url = f"https://docs.google.com/spreadsheets/d/{INVENTORY_SHEET_ID}/edit#gid=0"
 
     action_buttons = [
         {
@@ -1373,14 +1372,6 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
             "onClick": {
                 "openLink": {
                     "url": spec_sheet_url
-                }
-            }
-        },
-        {
-            "text": "📊 View Inventory Sheet",
-            "onClick": {
-                "openLink": {
-                    "url": inventory_sheet_url
                 }
             }
         }
