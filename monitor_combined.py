@@ -1223,8 +1223,6 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     if comparison_widgets:
         sections.append({
             "header": "📊 WC vs Inventory",
-            "collapsible": True,
-            "collapsed": True,
             "widgets": comparison_widgets
         })
 
@@ -1336,8 +1334,6 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     if gizzard_widgets:
         sections.append({
             "header": "🍗 Gizzard vs Inventory",
-            "collapsible": True,
-            "collapsed": True,
             "widgets": gizzard_widgets
         })
 
@@ -1346,8 +1342,6 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     if chicken_widgets:
         sections.append({
             "header": "📦 WC Stock Levels",
-            "collapsible": True,
-            "collapsed": True,
             "widgets": chicken_widgets
         })
 
@@ -1356,8 +1350,6 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     if parts_widgets:
         sections.append({
             "header": "📦 Parts Stock Levels",
-            "collapsible": True,
-            "collapsed": True,
             "widgets": parts_widgets
         })
 
