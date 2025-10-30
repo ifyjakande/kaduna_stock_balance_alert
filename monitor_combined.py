@@ -1173,15 +1173,13 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
 
         comparison_widgets.append({
             "decoratedText": {
-                "topLabel": "Specification Sheet Total",
-                "text": f"<b>{total_pieces:,} pieces</b>"
+                "text": f"Spec Sheet: <b>{total_pieces:,}pcs</b>"
             }
         })
 
         comparison_widgets.append({
             "decoratedText": {
-                "topLabel": "Inventory Records Total",
-                "text": f"<b>{int(inventory_balance):,} pieces</b>"
+                "text": f"Inventory: <b>{int(inventory_balance):,}pcs</b>"
             }
         })
 
@@ -1205,17 +1203,19 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                 color = "#FF6D00"  # Orange for low severity
                 icon = "DESCRIPTION"
 
+            sign = "+" if difference > 0 else ""
             comparison_widgets.append({
                 "decoratedText": {
-                    "text": f"<font color=\"{color}\">⚠️ <b>Discrepancy: {abs_diff:,} pieces {'more' if difference > 0 else 'less'}</b></font>",
+                    "text": f"<font color=\"{color}\">⚠️ <b>Diff: {sign}{difference:,}pcs</b></font>",
                     "startIcon": {"knownIcon": icon}
                 }
             })
 
     if comparison_widgets:
         sections.append({
-            "header": "📊 Whole Chicken Stock Comparison",
+            "header": "📊 WC vs Inventory",
             "collapsible": True,
+            "collapsed": True,
             "widgets": comparison_widgets
         })
 
@@ -1234,15 +1234,13 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
 
         gizzard_widgets.append({
             "decoratedText": {
-                "topLabel": "Specification Sheet Total (Packs)",
-                "text": f"<b>{current_gizzard_packs:,.1f} packs</b>"
+                "text": f"Spec Sheet: <b>{current_gizzard_packs:,.1f}pks</b>"
             }
         })
 
         gizzard_widgets.append({
             "decoratedText": {
-                "topLabel": "Inventory Records Total (Packs)",
-                "text": f"<b>{gizzard_inventory_packs:,.1f} packs</b>"
+                "text": f"Inventory: <b>{gizzard_inventory_packs:,.1f}pks</b>"
             }
         })
 
@@ -1266,9 +1264,10 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                 color = "#FF6D00"  # Orange for low severity
                 icon = "DESCRIPTION"
 
+            sign = "+" if packs_difference > 0 else ""
             gizzard_widgets.append({
                 "decoratedText": {
-                    "text": f"<font color=\"{color}\">⚠️ <b>Discrepancy: {abs_diff:,.1f} packs {'more' if packs_difference > 0 else 'less'}</b></font>",
+                    "text": f"<font color=\"{color}\">⚠️ <b>Diff: {sign}{packs_difference:,.1f}pks</b></font>",
                     "startIcon": {"knownIcon": icon}
                 }
             })
@@ -1287,15 +1286,13 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
 
         gizzard_widgets.append({
             "decoratedText": {
-                "topLabel": "Specification Sheet Total (Weight)",
-                "text": f"<b>{current_gizzard_weight:,.2f} kg</b>"
+                "text": f"Spec Sheet: <b>{current_gizzard_weight:,.1f}kg</b>"
             }
         })
 
         gizzard_widgets.append({
             "decoratedText": {
-                "topLabel": "Inventory Records Total (Weight)",
-                "text": f"<b>{gizzard_inventory_weight:,.2f} kg</b>"
+                "text": f"Inventory: <b>{gizzard_inventory_weight:,.1f}kg</b>"
             }
         })
 
@@ -1319,17 +1316,19 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                 color = "#FF6D00"  # Orange for low severity
                 icon = "DESCRIPTION"
 
+            sign = "+" if weight_difference > 0 else ""
             gizzard_widgets.append({
                 "decoratedText": {
-                    "text": f"<font color=\"{color}\">⚠️ <b>Discrepancy: {abs_diff:,.2f} kg {'more' if weight_difference > 0 else 'less'}</b></font>",
+                    "text": f"<font color=\"{color}\">⚠️ <b>Diff: {sign}{weight_difference:,.1f}kg</b></font>",
                     "startIcon": {"knownIcon": icon}
                 }
             })
 
     if gizzard_widgets:
         sections.append({
-            "header": "🍗 Gizzard Stock Comparison",
+            "header": "🍗 Gizzard vs Inventory",
             "collapsible": True,
+            "collapsed": True,
             "widgets": gizzard_widgets
         })
 
@@ -1337,9 +1336,9 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     chicken_widgets = build_whole_chicken_widgets(balance_data)
     if chicken_widgets:
         sections.append({
-            "header": "📦 Whole Chicken - Current Stock Levels",
+            "header": "📦 WC Stock Levels",
             "collapsible": True,
-            "collapsed": False,
+            "collapsed": True,
             "widgets": chicken_widgets
         })
 
@@ -1347,9 +1346,9 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     parts_widgets = build_gizzard_and_parts_widgets(balance_data)
     if parts_widgets:
         sections.append({
-            "header": "📦 Gizzard & Parts - Current Stock Levels",
+            "header": "📦 Parts Stock Levels",
             "collapsible": True,
-            "collapsed": False,
+            "collapsed": True,
             "widgets": parts_widgets
         })
 
@@ -1468,23 +1467,22 @@ def build_whole_chicken_widgets(balance_data):
             total_qty += qty
             total_weight_kg += weight_kg
 
-            # Format qty as bags + pieces
+            # Format qty as bags + pieces (compact format)
             bags = int(qty // 20)
             remaining = int(qty % 20)
-            bags_text = f"{bags} bag" if bags == 1 else f"{bags} bags"
-            pieces_text = f"{remaining} piece" if remaining == 1 else f"{remaining} pieces"
 
             if bags > 0 and remaining > 0:
-                qty_display = f"{bags_text}, {pieces_text}"
+                qty_display = f"{bags}bags+{remaining}pcs"
             elif bags > 0:
-                qty_display = bags_text
+                bags_suffix = "bag" if bags == 1 else "bags"
+                qty_display = f"{bags}{bags_suffix}"
             else:
-                qty_display = pieces_text
+                pcs_suffix = "pc" if remaining == 1 else "pcs"
+                qty_display = f"{remaining}{pcs_suffix}"
 
             widgets.append({
                 "decoratedText": {
-                    "topLabel": grade_display,
-                    "text": f"{qty_display} ({weight_kg:,.2f} kg)"
+                    "text": f"{grade_display}: {qty_display} ({weight_kg:,.1f}kg)"
                 }
             })
 
@@ -1582,12 +1580,12 @@ def build_gizzard_and_parts_widgets(balance_data):
 
             # Only show grades with actual data
             if packs > 0 or weight > 0:
-                packs_text = f"{packs:,.1f} pack" if packs == 1 else f"{packs:,.1f} packs"
+                packs_suffix = "pk" if packs == 1 else "pks"
+                packs_text = f"{packs:,.1f}{packs_suffix}"
 
                 widgets.append({
                     "decoratedText": {
-                        "topLabel": grade_display,
-                        "text": f"{packs_text} ({weight:,.2f} kg)"
+                        "text": f"{grade_display}: {packs_text} ({weight:,.1f}kg)"
                     }
                 })
 
