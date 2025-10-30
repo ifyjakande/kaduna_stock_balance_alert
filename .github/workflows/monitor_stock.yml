@@ -1,4 +1,6 @@
-name: Process Inventory and Monitor Changes
+name: Monitor Kaduna Stock Balance
+
+run-name: "Stock Monitor - Run #${{ github.run_number }}"
 
 on:
   schedule:
