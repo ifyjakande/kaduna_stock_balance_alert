@@ -1436,13 +1436,6 @@ def build_whole_chicken_widgets(balance_data):
     weights_with_data = [w for w in weight_order if w in weight_ranges]
 
     for idx, weight in enumerate(weights_with_data):
-        # Add weight category header
-        widgets.append({
-            "decoratedText": {
-                "text": f"<b>{weight}</b>"
-            }
-        })
-
         # Get weight per piece for this category (used to calculate weight from qty)
         weight_per_piece, is_approx, approx_text = get_weight_per_piece(weight)
 
@@ -1455,6 +1448,9 @@ def build_whole_chicken_widgets(balance_data):
             if grade not in grades:
                 grades[grade] = {}
             grades[grade][metric] = value
+
+        # Build combined text for this weight category
+        grade_lines = [f"<b>{weight}</b>"]
 
         # Display each grade
         for grade_name in grades:
@@ -1482,11 +1478,15 @@ def build_whole_chicken_widgets(balance_data):
                 pcs_suffix = "pc" if remaining == 1 else "pcs"
                 qty_display = f"{remaining}{pcs_suffix}"
 
-            widgets.append({
-                "decoratedText": {
-                    "text": f"{grade_display}: {qty_display} ({weight_kg:,.1f}kg)"
-                }
-            })
+            grade_lines.append(f"{grade_display}: {qty_display} ({weight_kg:,.1f}kg)")
+
+        # Combine all lines into single widget
+        combined_text = "\n".join(grade_lines)
+        widgets.append({
+            "decoratedText": {
+                "text": combined_text
+            }
+        })
 
         # Add divider after each weight category for better readability
         widgets.append({"divider": {}})
@@ -1540,13 +1540,6 @@ def build_gizzard_and_parts_widgets(balance_data):
         # Get data for this product
         product_cols = [col for col in parsed_columns if col['product'] == product_name]
 
-        # Add product header
-        widgets.append({
-            "decoratedText": {
-                "text": f"<b>{product_name.title()}</b>"
-            }
-        })
-
         # Group by grade dynamically from actual data
         grades = {}
         for col in product_cols:
@@ -1563,6 +1556,9 @@ def build_gizzard_and_parts_widgets(balance_data):
                                    'Grade A', 'Grade B', 'Grade C', 'Grade D'] if g in grades]
         # Add any remaining grades not in the predefined order
         grade_order.extend([g for g in sorted(grades.keys()) if g not in grade_order])
+
+        # Build combined text for this product
+        product_lines = [f"<b>{product_name.title()}</b>"]
 
         # Display each grade
         for grade_name in grade_order:
@@ -1584,12 +1580,15 @@ def build_gizzard_and_parts_widgets(balance_data):
             if packs > 0 or weight > 0:
                 packs_suffix = "pk" if packs == 1 else "pks"
                 packs_text = f"{packs:,.1f}{packs_suffix}"
+                product_lines.append(f"{grade_display}: {packs_text} ({weight:,.1f}kg)")
 
-                widgets.append({
-                    "decoratedText": {
-                        "text": f"{grade_display}: {packs_text} ({weight:,.1f}kg)"
-                    }
-                })
+        # Combine all lines into single widget
+        combined_text = "\n".join(product_lines)
+        widgets.append({
+            "decoratedText": {
+                "text": combined_text
+            }
+        })
 
         # Add divider after each product for better readability
         widgets.append({"divider": {}})
