@@ -1387,6 +1387,7 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     ]
 
     sections.append({
+        "header": "🔗 Quick Links",
         "widgets": [{
             "buttonList": {
                 "buttons": action_buttons
