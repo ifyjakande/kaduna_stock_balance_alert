@@ -869,6 +869,7 @@ def format_change_description(change):
     """
     Format a single change object into readable text.
     Change format: {'product': str, 'grade': str, 'metric': str, 'old_value': str, 'new_value': str}
+    Uses abbreviations for mobile-friendly display: WC (Whole Chicken), GA (Grade A), GB (Grade B), etc.
     """
     product = change['product']
     grade = change['grade']
@@ -876,39 +877,61 @@ def format_change_description(change):
     old_val = change['old_value']
     new_val = change['new_value']
 
-    # Extract weight range for whole chicken
+    # Extract weight range for whole chicken and use abbreviation
     weight_range = ""
     if 'WHOLE CHICKEN' in product:
         weight_range = product.replace('WHOLE CHICKEN - ', '')
-        product_display = f"Whole Chicken - {weight_range}"
+        product_display = f"WC-{weight_range}"  # Abbreviated: WC instead of Whole Chicken
     else:
         product_display = product.title()
 
-    # Format grade display
-    grade_display = grade.replace('(Standard Bird)', '').replace('(Standard Gizzard)', '').replace('(Standard Wings)', '').replace('(Standard Laps)', '').replace('(Standard Breast)', '').replace('(Standard Fillet)', '').replace('(Standard Bones)', '').strip()
+    # Format grade display with abbreviations
+    grade_clean = grade.replace('(Standard Bird)', '').replace('(Standard Gizzard)', '').replace('(Standard Wings)', '').replace('(Standard Laps)', '').replace('(Standard Breast)', '').replace('(Standard Fillet)', '').replace('(Standard Bones)', '').strip()
+
+    # Abbreviate grades: Grade A -> GA, Grade B -> GB, etc.
+    if grade_clean == 'Grade A':
+        grade_display = 'GA'
+    elif grade_clean == 'Grade B':
+        grade_display = 'GB'
+    elif grade_clean == 'Grade C':
+        grade_display = 'GC'
+    elif grade_clean == 'Grade D':
+        grade_display = 'GD'
+    else:
+        grade_display = grade_clean
+
+    # Abbreviate metrics: Qty -> Q, Weight(kg) -> W(kg), Packs -> P
+    if metric == 'Qty':
+        metric_display = 'Q'
+    elif metric == 'Weight(kg)':
+        metric_display = 'W(kg)'
+    elif metric == 'Packs':
+        metric_display = 'P'
+    else:
+        metric_display = metric
 
     # Format values based on metric
     try:
         if metric == 'Qty':
-            # Quantity - format as pieces
+            # Quantity - format as pieces (abbreviated: pc/pcs)
             old_num = float(old_val) if old_val else 0
             new_num = float(new_val) if new_val else 0
-            old_suffix = " piece" if old_num == 1 else " pieces"
-            new_suffix = " piece" if new_num == 1 else " pieces"
+            old_suffix = "pc" if abs(old_num) == 1 else "pcs"
+            new_suffix = "pc" if abs(new_num) == 1 else "pcs"
             old_str = f"{int(old_num):,}{old_suffix}"
             new_str = f"{int(new_num):,}{new_suffix}"
         elif metric == 'Weight(kg)':
             # Weight - format as kg
             old_num = float(old_val) if old_val else 0
             new_num = float(new_val) if new_val else 0
-            old_str = f"{old_num:,.2f} kg"
-            new_str = f"{new_num:,.2f} kg"
+            old_str = f"{old_num:,.2f}kg"
+            new_str = f"{new_num:,.2f}kg"
         elif metric == 'Packs':
-            # Packs - format as packs
+            # Packs - format as packs (abbreviated: pk/pks)
             old_num = float(old_val) if old_val else 0
             new_num = float(new_val) if new_val else 0
-            old_suffix = " pack" if old_num == 1 else " packs"
-            new_suffix = " pack" if new_num == 1 else " packs"
+            old_suffix = "pk" if abs(old_num) == 1 else "pks"
+            new_suffix = "pk" if abs(new_num) == 1 else "pks"
             old_str = f"{old_num:,.1f}{old_suffix}"
             new_str = f"{new_num:,.1f}{new_suffix}"
         else:
@@ -918,7 +941,7 @@ def format_change_description(change):
         old_str = str(old_val)
         new_str = str(new_val)
 
-    return f"• {product_display} - {grade_display} - {metric}: {old_str} → {new_str}"
+    return f"• {product_display} {grade_display} {metric_display}: {old_str}→{new_str}"
 
 def get_weight_per_piece(category_name):
     """Get weight per piece for a given category and whether it's an approximation."""
@@ -1027,17 +1050,22 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
             change_widgets.append({"divider": {}})
             change_widgets.append({
                 "decoratedText": {
-                    "text": "<b>Inventory Balance Difference Changes:</b>"
+                    "text": "<b>Inventory Balance Diff Changes:</b>"
                 }
             })
 
             for change_type, old_val, new_val in difference_changes:
                 if 'Chicken' in change_type:
-                    old_suffix = " piece" if abs(old_val) == 1 else " pieces"
-                    new_suffix = " piece" if abs(new_val) == 1 else " pieces"
-                    change_text = f"{change_type}: {old_val:,}{old_suffix} → {new_val:,}{new_suffix}"
+                    old_suffix = "pc" if abs(old_val) == 1 else "pcs"
+                    new_suffix = "pc" if abs(new_val) == 1 else "pcs"
+                    # Abbreviate: WC Balance Diff instead of Whole Chicken Balance Difference
+                    change_text = f"WC Balance Diff: {old_val:,}{old_suffix}→{new_val:,}{new_suffix}"
+                elif 'Packs' in change_type:
+                    # Gizzard Packs Balance Diff
+                    change_text = f"Gizzard Packs Diff: {old_val:,.1f}pks→{new_val:,.1f}pks"
                 else:
-                    change_text = f"{change_type}: {old_val:,.2f} kg → {new_val:,.2f} kg"
+                    # Gizzard Weight Balance Diff
+                    change_text = f"Gizzard Weight Diff: {old_val:,.2f}kg→{new_val:,.2f}kg"
 
                 change_widgets.append({
                     "decoratedText": {
