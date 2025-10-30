@@ -371,6 +371,16 @@ def check_failed_webhooks():
         save_state_read_failure_alert(['failed_webhooks.enc'], str(e))
 
 
+def clear_failed_webhooks():
+    """Remove failed webhooks file after successful delivery"""
+    try:
+        if os.path.exists(FAILED_WEBHOOKS_FILE):
+            os.remove(FAILED_WEBHOOKS_FILE)
+            print("Cleared failed webhook queue")
+    except Exception as e:
+        print(f"Error clearing failed webhook queue: {str(e)}")
+
+
 @retry(
     retry=retry_if_exception_type((HttpError, Exception)),
     stop=stop_after_attempt(5),
@@ -1640,6 +1650,7 @@ def send_combined_alert(webhook_url, balance_changes, balance_data, inventory_ba
             print("\nSending card alert...")
             _send_webhook(card)
             print("✅ Card alert sent successfully")
+            clear_failed_webhooks()
             return True
         except Exception as e:
             error_detail = str(e)
