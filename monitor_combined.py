@@ -1480,10 +1480,10 @@ def build_whole_chicken_widgets(balance_data):
 
             grade_lines.append(f"{grade_display}: {qty_display} ({weight_kg:,.1f}kg)")
 
-        # Combine all lines into single widget
+        # Combine all lines into single widget using textParagraph for proper multi-line rendering
         combined_text = "\n".join(grade_lines)
         widgets.append({
-            "decoratedText": {
+            "textParagraph": {
                 "text": combined_text
             }
         })
@@ -1582,10 +1582,10 @@ def build_gizzard_and_parts_widgets(balance_data):
                 packs_text = f"{packs:,.1f}{packs_suffix}"
                 product_lines.append(f"{grade_display}: {packs_text} ({weight:,.1f}kg)")
 
-        # Combine all lines into single widget
+        # Combine all lines into single widget using textParagraph for proper multi-line rendering
         combined_text = "\n".join(product_lines)
         widgets.append({
-            "decoratedText": {
+            "textParagraph": {
                 "text": combined_text
             }
         })
