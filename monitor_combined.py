@@ -896,7 +896,9 @@ def format_change_description(change, include_product=True):
         if 'WHOLE CHICKEN' in product:
             weight_range = product.replace('WHOLE CHICKEN - ', '')
             product_display = f"{weight_range} "
-        # For other products, no prefix needed since it's in the group header
+        else:
+            # For other products (Gizzard, Wings, etc.), no prefix needed since it's in the group header
+            product_display = ""
 
     # Format grade display with abbreviations
     grade_clean = grade.replace('(Standard Bird)', '').replace('(Standard Gizzard)', '').replace('(Standard Wings)', '').replace('(Standard Laps)', '').replace('(Standard Breast)', '').replace('(Standard Fillet)', '').replace('(Standard Bones)', '').strip()
