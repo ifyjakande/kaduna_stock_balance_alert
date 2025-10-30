@@ -1362,29 +1362,23 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
             "widgets": parts_widgets
         })
 
-    # Section 6: Action Buttons
-    # Build Google Sheets URL
+    # Add View Specification Sheet button to the last section
     spec_sheet_url = f"https://docs.google.com/spreadsheets/d/{SPECIFICATION_SHEET_ID}/edit#gid=0"
 
-    action_buttons = [
-        {
-            "text": "🔗 View Specification Sheet",
-            "onClick": {
-                "openLink": {
-                    "url": spec_sheet_url
-                }
-            }
-        }
-    ]
-
-    sections.append({
-        "header": "🔗 Quick Links",
-        "widgets": [{
+    # Get the last section and add the button to it
+    if sections:
+        sections[-1]["widgets"].append({
             "buttonList": {
-                "buttons": action_buttons
+                "buttons": [{
+                    "text": "🔗 View Specification Sheet",
+                    "onClick": {
+                        "openLink": {
+                            "url": spec_sheet_url
+                        }
+                    }
+                }]
             }
-        }]
-    })
+        })
 
     # Build the complete card with severity-based header color
     header_config = {
