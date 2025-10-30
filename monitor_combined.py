@@ -1631,6 +1631,15 @@ def send_combined_alert(webhook_url, balance_changes, balance_data, inventory_ba
         def _send_webhook(payload):
             print(f"Sending card webhook request...")
             response = requests.post(webhook_url, json=payload, timeout=10)
+            if not response.ok:
+                response_text = response.text.strip()
+                if response_text:
+                    preview = (response_text[:1000] + '…') if len(response_text) > 1000 else response_text
+                    print(f"Webhook response body: {preview}")
+                raise requests.exceptions.HTTPError(
+                    f"Status {response.status_code}: {response.reason}",
+                    response=response
+                )
             response.raise_for_status()
             print(f"Webhook response status: {response.status_code}")
             return response
@@ -1641,9 +1650,16 @@ def send_combined_alert(webhook_url, balance_changes, balance_data, inventory_ba
             print("✅ Card alert sent successfully")
             return True
         except Exception as e:
-            print(f"❌ Failed to send card alert: {str(e)}")
+            error_detail = str(e)
+            if isinstance(e, requests.exceptions.HTTPError) and getattr(e, "response", None) is not None:
+                body = e.response.text.strip()
+                if body:
+                    error_detail = f"{error_detail} | response body: {body[:1000]}"
+                    if len(body) > 1000:
+                        error_detail += "…"
+            print(f"❌ Failed to send card alert: {error_detail}")
             # Save to dead letter queue
-            save_failed_webhook(card, str(e), webhook_url)
+            save_failed_webhook(card, error_detail, webhook_url)
             return False
 
     except pybreaker.CircuitBreakerOpenException:
