@@ -157,6 +157,7 @@ jobs:
         fi
 
     - name: Send email alert for failed webhooks
+      id: send_failed_webhook_email
       if: always() && env.FAILED_WEBHOOK_ALERT == 'true'
       uses: dawidd6/action-send-mail@v3
       with:
@@ -168,6 +169,13 @@ jobs:
         to: ${{ secrets.EMAIL_RECIPIENTS }}
         from: ${{ secrets.EMAIL_SENDER }}
         body: file://email_body.txt
+
+    - name: Clear failed webhook state after alert
+      if: always() && env.FAILED_WEBHOOK_ALERT == 'true' && steps.send_failed_webhook_email.outcome == 'success'
+      run: |
+        rm -f encrypted_states/failed_webhooks.enc
+        rm -f failed_webhooks_readable.txt
+        rm -f email_body.txt
 
     - name: Send email alert for state read failure
       if: always() && env.STATE_READ_FAILURE_ALERT == 'true'
