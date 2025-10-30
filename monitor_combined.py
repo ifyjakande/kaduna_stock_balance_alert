@@ -865,11 +865,15 @@ def calculate_current_differences(stock_data, inventory_balance, gizzard_invento
         print(f"Error calculating current differences: {str(e)}")
         return None, None, None
 
-def format_change_description(change):
+def format_change_description(change, include_product=True):
     """
     Format a single change object into readable text.
     Change format: {'product': str, 'grade': str, 'metric': str, 'old_value': str, 'new_value': str}
     Uses abbreviations for mobile-friendly display: WC (Whole Chicken), GA (Grade A), GB (Grade B), etc.
+
+    Args:
+        change: Dictionary containing product, grade, metric, old_value, new_value
+        include_product: If False, omit product name (useful when grouping by product)
     """
     product = change['product']
     grade = change['grade']
@@ -877,13 +881,22 @@ def format_change_description(change):
     old_val = change['old_value']
     new_val = change['new_value']
 
-    # Extract weight range for whole chicken and use abbreviation
+    # Extract weight range for whole chicken
     weight_range = ""
-    if 'WHOLE CHICKEN' in product:
-        weight_range = product.replace('WHOLE CHICKEN - ', '')
-        product_display = f"WC-{weight_range}"  # Abbreviated: WC instead of Whole Chicken
+    product_display = ""
+
+    if include_product:
+        if 'WHOLE CHICKEN' in product:
+            weight_range = product.replace('WHOLE CHICKEN - ', '')
+            product_display = f"WC-{weight_range} "  # Abbreviated: WC instead of Whole Chicken
+        else:
+            product_display = f"{product.title()} "
     else:
-        product_display = product.title()
+        # When not including product, just show weight range for WC
+        if 'WHOLE CHICKEN' in product:
+            weight_range = product.replace('WHOLE CHICKEN - ', '')
+            product_display = f"{weight_range} "
+        # For other products, no prefix needed since it's in the group header
 
     # Format grade display with abbreviations
     grade_clean = grade.replace('(Standard Bird)', '').replace('(Standard Gizzard)', '').replace('(Standard Wings)', '').replace('(Standard Laps)', '').replace('(Standard Breast)', '').replace('(Standard Fillet)', '').replace('(Standard Bones)', '').strip()
@@ -941,7 +954,7 @@ def format_change_description(change):
         old_str = str(old_val)
         new_str = str(new_val)
 
-    return f"• {product_display} {grade_display} {metric_display}: {old_str}→{new_str}"
+    return f"• {product_display}{grade_display} {metric_display}: {old_str}→{new_str}"
 
 def get_weight_per_piece(category_name):
     """Get weight per piece for a given category and whether it's an approximation."""
@@ -1015,7 +1028,7 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     if balance_changes or chicken_difference_changes or gizzard_difference_changes:
         change_widgets = []
 
-        # Balance changes summary
+        # Balance changes summary - grouped by product
         if balance_changes:
             change_count_text = f"🔄 {len(balance_changes)} balance change(s) detected"
             change_widgets.append({
@@ -1024,18 +1037,91 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                 }
             })
 
-            # Show first 10 changes
-            for change in balance_changes[:10]:
+            # Group changes by product type
+            grouped_changes = {}
+            for change in balance_changes:
+                product = change['product']
+
+                # Determine product group
+                if 'WHOLE CHICKEN' in product:
+                    group = 'WC'
+                elif product == 'GIZZARD':
+                    group = 'Gizzard'
+                elif product == 'WINGS':
+                    group = 'Wings'
+                elif product == 'LAPS':
+                    group = 'Laps'
+                elif product == 'BREAST':
+                    group = 'Breast'
+                elif product == 'FILLET':
+                    group = 'Fillet'
+                elif product == 'BONES':
+                    group = 'Bones'
+                else:
+                    group = product.title()
+
+                if group not in grouped_changes:
+                    grouped_changes[group] = []
+                grouped_changes[group].append(change)
+
+            # Display changes by group
+            max_changes = 50  # Show up to 50 changes total
+            changes_shown = 0
+
+            # Order: WC, Gizzard, Wings, Laps, Breast, Fillet, Bones, Others
+            product_order = ['WC', 'Gizzard', 'Wings', 'Laps', 'Breast', 'Fillet', 'Bones']
+
+            for product_group in product_order:
+                if product_group not in grouped_changes:
+                    continue
+                if changes_shown >= max_changes:
+                    break
+
+                # Add product group header
                 change_widgets.append({
                     "decoratedText": {
-                        "text": format_change_description(change)
+                        "text": f"<b>{product_group} Changes:</b>"
                     }
                 })
 
-            if len(balance_changes) > 10:
+                # Add changes for this group
+                for change in grouped_changes[product_group]:
+                    if changes_shown >= max_changes:
+                        break
+                    change_widgets.append({
+                        "decoratedText": {
+                            "text": format_change_description(change, include_product=False)
+                        }
+                    })
+                    changes_shown += 1
+
+            # Handle any remaining groups not in product_order
+            for product_group in grouped_changes:
+                if product_group in product_order:
+                    continue
+                if changes_shown >= max_changes:
+                    break
+
                 change_widgets.append({
                     "decoratedText": {
-                        "text": f"<i>...and {len(balance_changes) - 10} more changes</i>"
+                        "text": f"<b>{product_group} Changes:</b>"
+                    }
+                })
+
+                for change in grouped_changes[product_group]:
+                    if changes_shown >= max_changes:
+                        break
+                    change_widgets.append({
+                        "decoratedText": {
+                            "text": format_change_description(change, include_product=False)
+                        }
+                    })
+                    changes_shown += 1
+
+            if len(balance_changes) > max_changes:
+                change_widgets.append({
+                    "decoratedText": {
+                        "text": f"<i>...and {len(balance_changes) - max_changes} more changes</i>"
                     }
                 })
 
