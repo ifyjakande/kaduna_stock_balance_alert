@@ -1,7 +1,5 @@
 name: Monitor Kaduna Stock Balance
 
-run-name: "Kaduna Stock Monitor #${{ github.run_number }} - ${{ github.event_name == 'schedule' && 'Scheduled' || 'Manual' }}"
-
 on:
   schedule:
     - cron: '*/5 * * * *'  # Runs every 5 minutes
