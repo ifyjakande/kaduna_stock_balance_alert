@@ -150,8 +150,6 @@ jobs:
           echo "- Verify encrypted state files are not corrupted" >> state_read_failure_email_body.txt
           echo "- Check for any changes to encryption implementation" >> state_read_failure_email_body.txt
           echo "" >> state_read_failure_email_body.txt
-          echo "Workflow Details:" >> state_read_failure_email_body.txt
-          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> state_read_failure_email_body.txt
         else
           echo "No state read failure detected"
         fi
