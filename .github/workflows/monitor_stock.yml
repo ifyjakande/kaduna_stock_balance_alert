@@ -34,7 +34,6 @@ jobs:
         ACTIONS_STEP_DEBUG: false
     
     - name: Run data transformation
-      id: transformation
       env:
         INVENTORY_SHEET_ID: ${{ secrets.INVENTORY_SHEET_ID }}
         INVENTORY_ETL_SPREADSHEET_ID: ${{ secrets.INVENTORY_ETL_SPREADSHEET_ID }}

@@ -394,7 +394,6 @@ def robust_api_call(api_func, *args, **kwargs):
     except Exception as e:
         if is_rate_limit_error(e):
             # Add jitter to prevent thundering herd
-            import time
             time.sleep(random.uniform(0.5, 2.0))
         raise
 
