@@ -96,31 +96,31 @@ jobs:
 
           # Use Python to decrypt and count failed webhooks
           WEBHOOK_CHECK_RESULT=$(python3 -c "
-          import os
-          from cryptography.fernet import Fernet
-          import pickle
+import os
+from cryptography.fernet import Fernet
+import pickle
 
-          try:
-              key = os.environ['STATE_ENCRYPTION_KEY'].encode()
-              fernet = Fernet(key)
+try:
+    key = os.environ['STATE_ENCRYPTION_KEY'].encode()
+    fernet = Fernet(key)
 
-              with open('encrypted_states/failed_webhooks.enc', 'rb') as f:
-                  encrypted_data = f.read()
-                  failed_webhooks = pickle.loads(fernet.decrypt(encrypted_data))
+    with open('encrypted_states/failed_webhooks.enc', 'rb') as f:
+        encrypted_data = f.read()
+        failed_webhooks = pickle.loads(fernet.decrypt(encrypted_data))
 
-              if isinstance(failed_webhooks, list) and len(failed_webhooks) > 0:
-                  print(f'FOUND:{len(failed_webhooks)}')
-                  with open('failed_webhooks_readable.txt', 'w') as f:
-                      for webhook in failed_webhooks:
-                          f.write(f\"Timestamp: {webhook.get('timestamp', 'Unknown')}\\n\")
-                          f.write(f\"Error: {webhook.get('error', 'Unknown')}\\n\")
-                          f.write(f\"Attempts: {webhook.get('attempts', 'Unknown')}\\n\")
-                          f.write('---\\n')
-              else:
-                  print('NONE')
-          except Exception as e:
-              print(f'ERROR:{str(e)}')
-          ")
+    if isinstance(failed_webhooks, list) and len(failed_webhooks) > 0:
+        print(f'FOUND:{len(failed_webhooks)}')
+        with open('failed_webhooks_readable.txt', 'w') as f:
+            for webhook in failed_webhooks:
+                f.write(f\"Timestamp: {webhook.get('timestamp', 'Unknown')}\\n\")
+                f.write(f\"Error: {webhook.get('error', 'Unknown')}\\n\")
+                f.write(f\"Attempts: {webhook.get('attempts', 'Unknown')}\\n\")
+                f.write('---\\n')
+    else:
+        print('NONE')
+except Exception as e:
+    print(f'ERROR:{str(e)}')
+")
 
           if [[ "$WEBHOOK_CHECK_RESULT" == FOUND:* ]]; then
             FAILED_COUNT=$(echo "$WEBHOOK_CHECK_RESULT" | cut -d: -f2)
