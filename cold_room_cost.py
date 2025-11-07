@@ -496,6 +496,7 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
         # 5. Our data columns (light blue) - excluding average row
         # Data rows: row 5 to row (4 + num_rows) in 1-indexed terms
         # In 0-indexed API terms: startRowIndex 4 to endRowIndex (4 + num_rows)
+        # Explicitly reset text formatting to ensure no bold/center from previous runs
         requests.append({
             'repeatCell': {
                 'range': {
@@ -507,10 +508,14 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 },
                 'cell': {
                     'userEnteredFormat': {
-                        'backgroundColor': {'red': 0.88, 'green': 0.95, 'blue': 0.996}  # #E0F2FE
+                        'backgroundColor': {'red': 0.88, 'green': 0.95, 'blue': 0.996},  # #E0F2FE
+                        'textFormat': {
+                            'bold': False
+                        },
+                        'horizontalAlignment': 'LEFT'
                     }
                 },
-                'fields': 'userEnteredFormat.backgroundColor'
+                'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
             }
         })
 
@@ -526,10 +531,14 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 },
                 'cell': {
                     'userEnteredFormat': {
-                        'backgroundColor': {'red': 0.996, 'green': 0.95, 'blue': 0.78}  # #FEF3C7
+                        'backgroundColor': {'red': 0.996, 'green': 0.95, 'blue': 0.78},  # #FEF3C7
+                        'textFormat': {
+                            'bold': False
+                        },
+                        'horizontalAlignment': 'LEFT'
                     }
                 },
-                'fields': 'userEnteredFormat.backgroundColor'
+                'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
             }
         })
 
@@ -545,10 +554,14 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 },
                 'cell': {
                     'userEnteredFormat': {
-                        'backgroundColor': {'red': 0.82, 'green': 0.98, 'blue': 0.898}  # #D1FAE5
+                        'backgroundColor': {'red': 0.82, 'green': 0.98, 'blue': 0.898},  # #D1FAE5
+                        'textFormat': {
+                            'bold': False
+                        },
+                        'horizontalAlignment': 'LEFT'
                     }
                 },
-                'fields': 'userEnteredFormat.backgroundColor'
+                'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
             }
         })
 
