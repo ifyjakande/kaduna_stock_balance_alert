@@ -267,19 +267,29 @@ def add_formulas_to_sheet(service: Any, spreadsheet_id: str, sheet_name: str, re
         avg_row = num_rows + 5  # Average row comes after all data rows (rows 1-3: headers, row 4: column headers, rows 5+: data)
 
         if report_type == 'whole_chicken':
-            # COST/BIRD = TOTAL COST / BIRD STORED (column M = L/H)
-            # COST/KG = TOTAL COST / WEIGHT STORED (column N = L/I)
+            # Column K = TOTAL COST (manual input)
+            # Column L = COST/UNIT = TOTAL COST / UNIT USED (K/J)
+            # Column M = COST/BIRD = TOTAL COST / BIRD STORED (K/H)
+            # Column N = COST/KG = TOTAL COST / WEIGHT STORED (K/I)
             for row in range(5, num_rows + 5):  # Start from row 5 (skip timestamp, methodology, formulas, column headers)
                 formulas.append({
+                    'range': f'{sheet_name}!L{row}',
+                    'values': [[f'=IF(J{row}=0,"",K{row}/J{row})']]  # TOTAL COST / UNIT USED
+                })
+                formulas.append({
                     'range': f'{sheet_name}!M{row}',
-                    'values': [[f'=IF(H{row}=0,"",L{row}/H{row})']]  # TOTAL COST / BIRD STORED
+                    'values': [[f'=IF(H{row}=0,"",K{row}/H{row})']]  # TOTAL COST / BIRD STORED
                 })
                 formulas.append({
                     'range': f'{sheet_name}!N{row}',
-                    'values': [[f'=IF(I{row}=0,"",L{row}/I{row})']]  # TOTAL COST / WEIGHT STORED
+                    'values': [[f'=IF(I{row}=0,"",K{row}/I{row})']]  # TOTAL COST / WEIGHT STORED
                 })
 
             # Add AVERAGE formulas
+            formulas.append({
+                'range': f'{sheet_name}!L{avg_row}',
+                'values': [[f'=AVERAGE(L5:L{num_rows + 4})']]
+            })
             formulas.append({
                 'range': f'{sheet_name}!M{avg_row}',
                 'values': [[f'=AVERAGE(M5:M{num_rows + 4})']]
@@ -289,14 +299,24 @@ def add_formulas_to_sheet(service: Any, spreadsheet_id: str, sheet_name: str, re
                 'values': [[f'=AVERAGE(N5:N{num_rows + 4})']]
             })
         else:  # gizzard or combined
-            # COST/KG = TOTAL COST / WEIGHT STORED (column I = H/E)
+            # Column G = TOTAL COST (manual input)
+            # Column H = COST/UNIT = TOTAL COST / UNIT USED (G/F)
+            # Column I = COST/KG = TOTAL COST / WEIGHT STORED (G/E)
             for row in range(5, num_rows + 5):
                 formulas.append({
+                    'range': f'{sheet_name}!H{row}',
+                    'values': [[f'=IF(F{row}=0,"",G{row}/F{row})']]  # TOTAL COST / UNIT USED
+                })
+                formulas.append({
                     'range': f'{sheet_name}!I{row}',
-                    'values': [[f'=IF(E{row}=0,"",H{row}/E{row})']]
+                    'values': [[f'=IF(E{row}=0,"",G{row}/E{row})']]  # TOTAL COST / WEIGHT STORED
                 })
 
-            # Add AVERAGE formula for COST/KG
+            # Add AVERAGE formulas
+            formulas.append({
+                'range': f'{sheet_name}!H{avg_row}',
+                'values': [[f'=AVERAGE(H5:H{num_rows + 4})']]
+            })
             formulas.append({
                 'range': f'{sheet_name}!I{avg_row}',
                 'values': [[f'=AVERAGE(I5:I{num_rows + 4})']]
@@ -336,15 +356,15 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
         if report_type == 'whole_chicken':
             total_cols = 14  # A-N
             our_cols = 9     # A-I
-            manual_cols_start = 9  # J
-            manual_cols_end = 12   # L
-            calc_cols_start = 12   # M
+            manual_cols_start = 9  # J (UNIT USED)
+            manual_cols_end = 11   # K (TOTAL COST)
+            calc_cols_start = 11   # L (COST/UNIT, COST/BIRD, COST/KG)
         else:  # gizzard or combined
             total_cols = 9   # A-I
             our_cols = 5     # A-E
-            manual_cols_start = 5  # F
-            manual_cols_end = 8    # H
-            calc_cols_start = 8    # I
+            manual_cols_start = 5  # F (UNIT USED)
+            manual_cols_end = 7    # G (TOTAL COST)
+            calc_cols_start = 7    # H (COST/UNIT, COST/KG)
 
         # 1. Merge cells in timestamp row (row 1)
         requests.append({
@@ -748,7 +768,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 }
             })
 
-            # Manual input: K-L (TOTAL DEPOSIT, TOTAL COST) - 2 dp with Naira symbol
+            # Manual input: K (TOTAL COST) - 2 dp with Naira symbol
             requests.append({
                 'repeatCell': {
                     'range': {
@@ -756,7 +776,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'startRowIndex': 4,
                         'endRowIndex': 4 + num_rows,
                         'startColumnIndex': 10,  # Column K
-                        'endColumnIndex': 12     # Column L
+                        'endColumnIndex': 11     # Column K only
                     },
                     'cell': {
                         'userEnteredFormat': {
@@ -770,14 +790,14 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 }
             })
 
-            # Formula columns M-N (COST/BIRD, COST/KG) - 2 dp with Naira symbol, includes average row
+            # Formula columns L-N (COST/UNIT, COST/BIRD, COST/KG) - 2 dp with Naira symbol, includes average row
             requests.append({
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
                         'endRowIndex': 4 + num_rows + 1,  # Include average row
-                        'startColumnIndex': 12,  # Column M
+                        'startColumnIndex': 11,  # Column L
                         'endColumnIndex': 14     # Column N
                     },
                     'cell': {
@@ -836,7 +856,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 }
             })
 
-            # Manual input: G-H (TOTAL DEPOSIT, TOTAL COST) - 2 dp with Naira symbol
+            # Manual input: G (TOTAL COST) - 2 dp with Naira symbol
             requests.append({
                 'repeatCell': {
                     'range': {
@@ -844,7 +864,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'startRowIndex': 4,
                         'endRowIndex': 4 + num_rows,
                         'startColumnIndex': 6,  # Column G
-                        'endColumnIndex': 8     # Column H
+                        'endColumnIndex': 7     # Column G only
                     },
                     'cell': {
                         'userEnteredFormat': {
@@ -858,15 +878,15 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                 }
             })
 
-            # Formula column I (COST/KG) - 2 dp with Naira symbol, includes average row
+            # Formula columns H-I (COST/UNIT, COST/KG) - 2 dp with Naira symbol, includes average row
             requests.append({
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
                         'endRowIndex': 4 + num_rows + 1,  # Include average row
-                        'startColumnIndex': 8,  # Column I
-                        'endColumnIndex': 9
+                        'startColumnIndex': 7,  # Column H
+                        'endColumnIndex': 9     # Column I
                     },
                     'cell': {
                         'userEnteredFormat': {
@@ -893,6 +913,67 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
 
     except Exception as e:
         print(f"Warning: Failed to apply number formatting: {str(e)}")
+
+def apply_conditional_formatting(service: Any, spreadsheet_id: str, sheet_name: str, report_type: str, num_rows: int):
+    """Apply conditional formatting to highlight COST/KG > ₦250 in red"""
+    try:
+        print(f"Applying conditional formatting to {sheet_name}...")
+
+        sheet_id = get_sheet_id(service, spreadsheet_id, sheet_name)
+        if sheet_id is None:
+            print(f"Warning: Could not find sheet {sheet_name} for conditional formatting")
+            return
+
+        requests = []
+
+        # Determine COST/KG column based on report type
+        if report_type == 'whole_chicken':
+            cost_kg_col = 13  # Column N (0-indexed)
+        else:  # combined
+            cost_kg_col = 8   # Column I (0-indexed)
+
+        # Add conditional formatting rule for COST/KG > 250
+        requests.append({
+            'addConditionalFormatRule': {
+                'rule': {
+                    'ranges': [{
+                        'sheetId': sheet_id,
+                        'startRowIndex': 4,  # Data rows start at row 5 (0-indexed: 4)
+                        'endRowIndex': 4 + num_rows,  # Exclude AVERAGE row
+                        'startColumnIndex': cost_kg_col,
+                        'endColumnIndex': cost_kg_col + 1
+                    }],
+                    'booleanRule': {
+                        'condition': {
+                            'type': 'NUMBER_GREATER',
+                            'values': [{'userEnteredValue': '250'}]
+                        },
+                        'format': {
+                            'backgroundColor': {'red': 1.0, 'green': 0.8, 'blue': 0.8},  # Light red
+                            'textFormat': {
+                                'foregroundColor': {'red': 0.6, 'green': 0.0, 'blue': 0.0},  # Dark red text
+                                'bold': True
+                            }
+                        }
+                    }
+                },
+                'index': 0
+            }
+        })
+
+        # Execute conditional formatting
+        if requests:
+            def _apply_conditional_formatting():
+                return service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={'requests': requests}
+                ).execute()
+
+            robust_sheets_operation(_apply_conditional_formatting)
+            print(f"Conditional formatting applied successfully to {sheet_name}")
+
+    except Exception as e:
+        print(f"Warning: Failed to apply conditional formatting: {str(e)}")
 
 def add_header_rows(service: Any, spreadsheet_id: str, sheet_name: str, report_type: str):
     """Add timestamp, methodology note, and formula description rows at the top of the sheet"""
@@ -945,12 +1026,12 @@ def upload_df_to_gsheet(df: pd.DataFrame,
             our_range = 'A:I'  # Our 9 columns
             all_headers = ['MONTH', 'TOTAL INFLOW', 'INFLOW WEIGHT', 'TOTAL RELEASE',
                           'RELEASE WEIGHT', 'BALANCE', 'WEIGHT BALANCE', 'BIRD STORED',
-                          'WEIGHT STORED', 'UNIT USED', 'TOTAL DEPOSIT', 'TOTAL COST',
-                          'COST/BIRD', 'COST/KG']
+                          'WEIGHT STORED', 'UNIT USED', 'TOTAL COST',
+                          'COST/UNIT', 'COST/BIRD', 'COST/KG']
         else:  # gizzard or combined
             our_range = 'A:E'  # Our 5 columns
             all_headers = ['MONTH', 'INFLOW WEIGHT', 'RELEASE WEIGHT', 'WEIGHT BALANCE',
-                          'WEIGHT STORED', 'UNIT USED', 'TOTAL DEPOSIT', 'TOTAL COST', 'COST/KG']
+                          'WEIGHT STORED', 'UNIT USED', 'TOTAL COST', 'COST/UNIT', 'COST/KG']
 
         # Prepare values with full headers but only our data
         # Keep numbers as floats so Google Sheets applies number formatting
@@ -1012,6 +1093,9 @@ def upload_df_to_gsheet(df: pd.DataFrame,
         # Apply number formatting as a SEPARATE operation AFTER all data and visual formatting
         # This ensures Google Sheets has fully processed the numeric values
         apply_number_formatting(service, spreadsheet_id, sheet_name, report_type, num_rows)
+
+        # Apply conditional formatting for COST/KG > ₦250
+        apply_conditional_formatting(service, spreadsheet_id, sheet_name, report_type, num_rows)
 
         return True
 
