@@ -494,12 +494,14 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
         })
 
         # 5. Our data columns (light blue) - excluding average row
+        # Data rows: row 5 to row (4 + num_rows) in 1-indexed terms
+        # In 0-indexed API terms: startRowIndex 4 to endRowIndex (4 + num_rows)
         requests.append({
             'repeatCell': {
                 'range': {
                     'sheetId': sheet_id,
                     'startRowIndex': 4,
-                    'endRowIndex': num_rows + 4,
+                    'endRowIndex': 4 + num_rows,
                     'startColumnIndex': 0,
                     'endColumnIndex': our_cols
                 },
@@ -518,7 +520,7 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 'range': {
                     'sheetId': sheet_id,
                     'startRowIndex': 4,
-                    'endRowIndex': num_rows + 4,
+                    'endRowIndex': 4 + num_rows,
                     'startColumnIndex': manual_cols_start,
                     'endColumnIndex': manual_cols_end
                 },
@@ -537,7 +539,7 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 'range': {
                     'sheetId': sheet_id,
                     'startRowIndex': 4,
-                    'endRowIndex': num_rows + 4,
+                    'endRowIndex': 4 + num_rows,
                     'startColumnIndex': calc_cols_start,
                     'endColumnIndex': total_cols
                 },
@@ -551,7 +553,9 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
         })
 
         # 8. Format AVERAGE row distinctly (darker grey, bold)
-        avg_row_index = num_rows + 4
+        # AVERAGE row is at row (5 + num_rows) in 1-indexed terms (after all data rows)
+        # In 0-indexed API terms: startRowIndex = 4 + num_rows, endRowIndex = 4 + num_rows + 1
+        avg_row_index = 4 + num_rows
         requests.append({
             'repeatCell': {
                 'range': {
@@ -581,7 +585,7 @@ def format_sheet(service: Any, spreadsheet_id: str, sheet_name: str, report_type
                 'range': {
                     'sheetId': sheet_id,
                     'startRowIndex': 0,
-                    'endRowIndex': num_rows + 5,  # Include timestamp, methodology, formulas, headers, data, and average row
+                    'endRowIndex': 4 + num_rows + 1,  # Include all rows: 4 header rows + num_rows data rows + 1 average row
                     'startColumnIndex': 0,
                     'endColumnIndex': total_cols
                 },
@@ -670,7 +674,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'range': {
                             'sheetId': sheet_id,
                             'startRowIndex': 4,
-                            'endRowIndex': num_rows + 4,
+                            'endRowIndex': 4 + num_rows,
                             'startColumnIndex': col_idx,
                             'endColumnIndex': col_idx + 1
                         },
@@ -693,7 +697,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                         'range': {
                             'sheetId': sheet_id,
                             'startRowIndex': 4,
-                            'endRowIndex': num_rows + 4,
+                            'endRowIndex': 4 + num_rows,
                             'startColumnIndex': col_idx,
                             'endColumnIndex': col_idx + 1
                         },
@@ -715,7 +719,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
-                        'endRowIndex': num_rows + 4,
+                        'endRowIndex': 4 + num_rows,
                         'startColumnIndex': 9,  # Column J
                         'endColumnIndex': 10
                     },
@@ -737,7 +741,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
-                        'endRowIndex': num_rows + 4,
+                        'endRowIndex': 4 + num_rows,
                         'startColumnIndex': 10,  # Column K
                         'endColumnIndex': 12     # Column L
                     },
@@ -759,7 +763,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
-                        'endRowIndex': num_rows + 5,  # Include average row
+                        'endRowIndex': 4 + num_rows + 1,  # Include average row
                         'startColumnIndex': 12,  # Column M
                         'endColumnIndex': 14     # Column N
                     },
@@ -781,7 +785,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
-                        'endRowIndex': num_rows + 4,
+                        'endRowIndex': 4 + num_rows,
                         'startColumnIndex': 1,  # Column B
                         'endColumnIndex': 5     # Up to column E
                     },
@@ -803,7 +807,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
-                        'endRowIndex': num_rows + 4,
+                        'endRowIndex': 4 + num_rows,
                         'startColumnIndex': 5,  # Column F
                         'endColumnIndex': 6
                     },
@@ -825,7 +829,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
-                        'endRowIndex': num_rows + 4,
+                        'endRowIndex': 4 + num_rows,
                         'startColumnIndex': 6,  # Column G
                         'endColumnIndex': 8     # Column H
                     },
@@ -847,7 +851,7 @@ def apply_number_formatting(service: Any, spreadsheet_id: str, sheet_name: str, 
                     'range': {
                         'sheetId': sheet_id,
                         'startRowIndex': 4,
-                        'endRowIndex': num_rows + 5,  # Include average row
+                        'endRowIndex': 4 + num_rows + 1,  # Include average row
                         'startColumnIndex': 8,  # Column I
                         'endColumnIndex': 9
                     },
