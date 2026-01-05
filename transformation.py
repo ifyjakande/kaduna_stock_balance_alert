@@ -180,10 +180,21 @@ def remove_opening_stock(df: pd.DataFrame, column_name: str) -> Tuple[pd.DataFra
 
 def create_summary_df(stock_inflow_df: pd.DataFrame, release_df: pd.DataFrame) -> pd.DataFrame:
     try:
-        
-        all_year_months = sorted(list(set(stock_inflow_df['year_month'].unique()) | 
+        # Handle empty dataframes - return empty summary with expected columns
+        if stock_inflow_df.empty and release_df.empty:
+            print("Both inflow and release dataframes are empty - returning empty summary")
+            return pd.DataFrame(columns=['month', 'year_month'])
+
+        all_year_months = sorted(list(set(stock_inflow_df['year_month'].unique()) |
                                     set(release_df['year_month'].unique())))
-        
+
+        # Filter out any NaN or empty values that might have slipped through
+        all_year_months = [ym for ym in all_year_months if pd.notna(ym) and ym != '']
+
+        if not all_year_months:
+            print("No valid year_month values found - returning empty summary")
+            return pd.DataFrame(columns=['month', 'year_month'])
+
         summary_df = pd.DataFrame({'year_month': all_year_months})
         summary_df['month'] = summary_df['year_month'].str.split('-').str[1].str.lower()
         summary_df = summary_df[['month', 'year_month']]
