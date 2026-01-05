@@ -85,22 +85,23 @@ def read_summary_sheet(service: Any, spreadsheet_id: str) -> pd.DataFrame:
     except Exception as e:
         raise DataProcessingError(f"Failed to read summary sheet: {str(e)}")
 
-def filter_data_from_jan_2025(df: pd.DataFrame) -> pd.DataFrame:
-    """Filter data for Jan 2025 onwards"""
+def filter_data_from_current_year(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter data for January of current year onwards"""
     try:
-        print("\nFiltering data for Jan 2025 onwards...")
+        current_year = datetime.now().year
+        print(f"\nFiltering data for Jan {current_year} onwards...")
 
         # Convert year_month to datetime for filtering
         df['date_filter'] = pd.to_datetime(df['year_month'], format='%Y-%m')
 
-        # Filter for Jan 2025 onwards
-        jan_2025 = pd.to_datetime('2025-01', format='%Y-%m')
-        filtered_df = df[df['date_filter'] >= jan_2025].copy()
+        # Filter for Jan of current year onwards
+        jan_current_year = pd.to_datetime(f'{current_year}-01', format='%Y-%m')
+        filtered_df = df[df['date_filter'] >= jan_current_year].copy()
 
         # Sort by date in ascending order (oldest first) for calculations
         filtered_df = filtered_df.sort_values('date_filter')
 
-        print(f"Filtered to {len(filtered_df)} rows from Jan 2025 onwards")
+        print(f"Filtered to {len(filtered_df)} rows from Jan {current_year} onwards")
         return filtered_df
     except Exception as e:
         raise DataProcessingError(f"Failed to filter data: {str(e)}")
@@ -1130,11 +1131,12 @@ def main():
         # Read summary sheet
         summary_df = read_summary_sheet(sheets_service, etl_spreadsheet_id)
 
-        # Filter for Jan 2025 onwards
-        filtered_df = filter_data_from_jan_2025(summary_df)
+        # Filter for current year onwards
+        filtered_df = filter_data_from_current_year(summary_df)
 
         if filtered_df.empty:
-            print("\nNo data found for Jan 2025 onwards. Exiting.")
+            current_year = datetime.now().year
+            print(f"\nNo data found for Jan {current_year} onwards. Exiting.")
             return
 
         # Create reports

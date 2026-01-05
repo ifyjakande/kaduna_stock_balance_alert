@@ -63,6 +63,10 @@ jobs:
         SPECIFICATION_SHEET_ID: ${{ secrets.SPECIFICATION_SHEET_ID }}
         INVENTORY_ETL_SPREADSHEET_ID: ${{ secrets.INVENTORY_ETL_SPREADSHEET_ID }}
         STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        BASELINE_WC_QTY: ${{ secrets.BASELINE_WC_QTY }}
+        BASELINE_WC_WEIGHT: ${{ secrets.BASELINE_WC_WEIGHT }}
+        BASELINE_GIZZARD_PACKS: ${{ secrets.BASELINE_GIZZARD_PACKS }}
+        BASELINE_GIZZARD_WEIGHT: ${{ secrets.BASELINE_GIZZARD_WEIGHT }}
         ACTIONS_STEP_DEBUG: false
       run: |
         echo "Starting inventory monitoring..."

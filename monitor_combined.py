@@ -34,6 +34,41 @@ INVENTORY_RANGE = 'A:BZ'  # Get all columns since we're finding them by name (ex
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 SERVICE_ACCOUNT_FILE = 'service-account.json'
 
+# Baseline stock count values (2-Jan-2026)
+# Read from environment variables (GitHub secrets) or fall back to local config
+def load_baseline_config():
+    """Load baseline values from env vars or local config file."""
+    baseline = {
+        'wc_qty': os.environ.get('BASELINE_WC_QTY'),
+        'wc_weight': os.environ.get('BASELINE_WC_WEIGHT'),
+        'gizzard_packs': os.environ.get('BASELINE_GIZZARD_PACKS'),
+        'gizzard_weight': os.environ.get('BASELINE_GIZZARD_WEIGHT')
+    }
+
+    # If env vars not set, try to load from local config file
+    if not all(baseline.values()):
+        config_file = os.path.join(os.path.dirname(__file__), 'baseline_config.json')
+        if os.path.exists(config_file):
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                baseline['wc_qty'] = baseline['wc_qty'] or config.get('BASELINE_WC_QTY')
+                baseline['wc_weight'] = baseline['wc_weight'] or config.get('BASELINE_WC_WEIGHT')
+                baseline['gizzard_packs'] = baseline['gizzard_packs'] or config.get('BASELINE_GIZZARD_PACKS')
+                baseline['gizzard_weight'] = baseline['gizzard_weight'] or config.get('BASELINE_GIZZARD_WEIGHT')
+
+    return {
+        'wc_qty': float(baseline['wc_qty']) if baseline['wc_qty'] else 0,
+        'wc_weight': float(baseline['wc_weight']) if baseline['wc_weight'] else 0,
+        'gizzard_packs': float(baseline['gizzard_packs']) if baseline['gizzard_packs'] else 0,
+        'gizzard_weight': float(baseline['gizzard_weight']) if baseline['gizzard_weight'] else 0
+    }
+
+BASELINE = load_baseline_config()
+BASELINE_WC_QTY = BASELINE['wc_qty']
+BASELINE_WC_WEIGHT = BASELINE['wc_weight']
+BASELINE_GIZZARD_PACKS = BASELINE['gizzard_packs']
+BASELINE_GIZZARD_WEIGHT = BASELINE['gizzard_weight']
+
 # Set up data directory for state persistence
 DATA_DIR = os.getenv('GITHUB_WORKSPACE', os.getcwd())
 ENCRYPTED_STATES_DIR = os.path.join(DATA_DIR, 'encrypted_states')
@@ -643,13 +678,13 @@ def get_inventory_balance(service):
         
         data = robust_api_call(_fetch_inventory_data)
         if not data:
-            print("No data found in inventory sheet")
-            return None
-            
+            print("No data found in inventory sheet, using baseline")
+            return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
+
         # Get the header row to find the column indices
         if len(data) < 2:  # Need at least header row and one data row
-            print("Not enough rows in inventory sheet")
-            return None
+            print("Not enough rows in inventory sheet, using baseline")
+            return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
             
         headers = data[0]
         try:
@@ -682,19 +717,25 @@ def get_inventory_balance(service):
                 current_month_row = sorted_data[0]
                 print(f"Using most recent available data from {current_month_row[year_month_col_index]}")
             else:
-                return None
-        
+                print("No data rows found, using baseline")
+                return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
+
         if len(current_month_row) > balance_col_index:
             try:
                 balance = float(current_month_row[balance_col_index])
+                # Add baseline stock count to the ETL balance
+                balance = balance + BASELINE_WC_QTY
                 return balance
             except (ValueError, TypeError):
                 print("Invalid balance value in inventory sheet")
-                return None
-        return None
+                # Return baseline if ETL value is invalid
+                return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
+        # Return baseline if no balance column data
+        return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
     except Exception as e:
         print(f"Error fetching inventory balance: {str(e)}")
-        return None
+        # Return baseline on error so comparison can still work
+        return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
 
 def get_gizzard_inventory_balance(service):
     """Fetch gizzard packs and weight balance from the inventory sheet.
@@ -710,13 +751,13 @@ def get_gizzard_inventory_balance(service):
 
         data = robust_api_call(_fetch_gizzard_data)
         if not data:
-            print("No data found in inventory sheet for gizzard")
-            return None, None
+            print("No data found in inventory sheet for gizzard, using baseline")
+            return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
 
         # Get the header row to find the column indices
         if len(data) < 2:  # Need at least header row and one data row
-            print("Not enough rows in inventory sheet for gizzard")
-            return None, None
+            print("Not enough rows in inventory sheet for gizzard, using baseline")
+            return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
 
         headers = data[0]
 
@@ -728,8 +769,8 @@ def get_gizzard_inventory_balance(service):
         try:
             year_month_col = headers.index('year_month')
         except ValueError:
-            print("Could not find year_month column in inventory sheet")
-            return None, None
+            print("Could not find year_month column in inventory sheet, using baseline")
+            return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
 
         # Check for gizzard quantity/packs column
         try:
@@ -768,28 +809,38 @@ def get_gizzard_inventory_balance(service):
                 current_month_row = sorted_data[0]
                 print(f"Using most recent available data from {current_month_row[year_month_col]} for gizzard")
             else:
-                return None, None
+                print("No data rows found for gizzard, using baseline")
+                return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
 
         # Extract packs balance
-        packs_balance = None
+        packs_balance = 0
         if gizzard_packs_col is not None and len(current_month_row) > gizzard_packs_col:
             try:
                 packs_balance = float(current_month_row[gizzard_packs_col])
             except (ValueError, TypeError):
                 print("Invalid gizzard packs balance value in inventory sheet")
+                packs_balance = 0
 
         # Extract weight balance
-        weight_balance = None
+        weight_balance = 0
         if gizzard_weight_col is not None and len(current_month_row) > gizzard_weight_col:
             try:
                 weight_balance = float(current_month_row[gizzard_weight_col])
             except (ValueError, TypeError):
                 print("Invalid gizzard weight balance value in inventory sheet")
+                weight_balance = 0
+
+        # Add baseline stock count to the ETL balance
+        packs_balance = packs_balance + BASELINE_GIZZARD_PACKS
+        weight_balance = weight_balance + BASELINE_GIZZARD_WEIGHT
 
         return packs_balance, weight_balance
 
     except Exception as e:
         print(f"Error fetching gizzard inventory balance: {str(e)}")
+        # Return baseline on error so comparison can still work
+        if BASELINE_GIZZARD_PACKS > 0 or BASELINE_GIZZARD_WEIGHT > 0:
+            return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
         return None, None
 
 def calculate_total_pieces(stock_data):
@@ -1041,6 +1092,17 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
 
     # Build card sections
     sections = []
+
+    # Section 0: Baseline Reference (Stock Count)
+    if BASELINE_WC_QTY > 0 or BASELINE_GIZZARD_PACKS > 0:
+        baseline_widgets = [
+            {"decoratedText": {"text": f"WC: <b>{int(BASELINE_WC_QTY):,}pcs</b> / <b>{BASELINE_WC_WEIGHT:,.2f}kg</b>"}},
+            {"decoratedText": {"text": f"Gizzard: <b>{int(BASELINE_GIZZARD_PACKS)}pks</b> / <b>{BASELINE_GIZZARD_WEIGHT:.2f}kg</b>"}}
+        ]
+        sections.append({
+            "header": "📦 Baseline (Stock Count)",
+            "widgets": baseline_widgets
+        })
 
     # Section 1: Changes Summary
     if balance_changes or chicken_difference_changes or gizzard_difference_changes:
