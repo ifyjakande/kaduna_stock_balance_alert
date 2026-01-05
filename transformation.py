@@ -126,8 +126,13 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 def standardize_dates(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
+        # Add required columns even for empty dataframe to avoid KeyError downstream
+        df = df.copy()
+        df['month'] = pd.Series(dtype='str')
+        df['year_month'] = pd.Series(dtype='str')
+        print("Empty dataframe - added month and year_month columns")
         return df
-    
+
     try:
         print("\nStandardizing dates...")
         df = df.copy()
