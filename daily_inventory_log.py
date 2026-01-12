@@ -200,6 +200,34 @@ def get_balance_sheet_data(sheets_service):
     return data
 
 
+def find_existing_entry_for_date(gspread_client, target_date):
+    """Check if an entry for the given date already exists. Returns (row_number, entry_id) or (None, None)."""
+    try:
+        spreadsheet = gspread_client.open_by_key(DAILY_LOG_SPREADSHEET_ID)
+
+        try:
+            worksheet = spreadsheet.worksheet(LOG_SHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            return None, None
+
+        # Get all data (Date is column B, Entry ID is column A)
+        all_data = worksheet.get_all_values()
+
+        # Skip first 3 rows (title, description, header) - data starts at row 4 (index 3)
+        for idx, row in enumerate(all_data[3:], start=4):
+            if len(row) >= 2 and row[1] == target_date:
+                try:
+                    entry_id = int(row[0])
+                    return idx, entry_id
+                except (ValueError, TypeError):
+                    continue
+
+        return None, None
+
+    except Exception as e:
+        raise DailyLogError(f"Failed to check existing entries: {str(e)}")
+
+
 def get_next_entry_id(gspread_client):
     """Get the next Entry ID by reading existing entries."""
     try:
@@ -233,6 +261,32 @@ def format_date_components(dt):
         'year': dt.strftime('%Y'),
         'month': dt.strftime('%B')
     }
+
+
+def update_log_entry(gspread_client, row_number, entry_data):
+    """Update an existing log entry at the specified row."""
+    try:
+        spreadsheet = gspread_client.open_by_key(DAILY_LOG_SPREADSHEET_ID)
+        worksheet = spreadsheet.worksheet(LOG_SHEET_NAME)
+
+        row = [
+            entry_data['entry_id'],
+            entry_data['date'],
+            entry_data['year'],
+            entry_data['month'],
+            entry_data['state'],
+            entry_data['inventory_tonnes'],
+            entry_data['below_10_tonnes']
+        ]
+
+        def _update_row():
+            worksheet.update(values=[row], range_name=f'A{row_number}:G{row_number}')
+
+        robust_api_call(_update_row)
+        return True
+
+    except Exception as e:
+        raise DailyLogError(f"Failed to update log entry: {str(e)}")
 
 
 def append_log_entry(gspread_client, entry_data):
@@ -469,20 +523,36 @@ def main():
         inventory_tonnes = round(total_weight_kg / 1000, 2)
         below_10_tonnes = "Yes" if inventory_tonnes < 10 else "No"
 
-        entry_id = get_next_entry_id(gspread_client)
+        # Check if entry for today already exists
+        existing_row, existing_entry_id = find_existing_entry_for_date(gspread_client, date_components['date'])
 
-        entry_data = {
-            'entry_id': entry_id,
-            'date': date_components['date'],
-            'year': date_components['year'],
-            'month': date_components['month'],
-            'state': 'Kaduna',
-            'inventory_tonnes': inventory_tonnes,
-            'below_10_tonnes': below_10_tonnes
-        }
-
-        append_log_entry(gspread_client, entry_data)
-        print(f"Daily Inventory Log completed - Entry #{entry_id} added for {date_components['date']}")
+        if existing_row:
+            # Update existing entry for today
+            entry_data = {
+                'entry_id': existing_entry_id,
+                'date': date_components['date'],
+                'year': date_components['year'],
+                'month': date_components['month'],
+                'state': 'Kaduna',
+                'inventory_tonnes': inventory_tonnes,
+                'below_10_tonnes': below_10_tonnes
+            }
+            update_log_entry(gspread_client, existing_row, entry_data)
+            print(f"Daily Inventory Log completed - Entry #{existing_entry_id} updated for {date_components['date']}")
+        else:
+            # Create new entry
+            entry_id = get_next_entry_id(gspread_client)
+            entry_data = {
+                'entry_id': entry_id,
+                'date': date_components['date'],
+                'year': date_components['year'],
+                'month': date_components['month'],
+                'state': 'Kaduna',
+                'inventory_tonnes': inventory_tonnes,
+                'below_10_tonnes': below_10_tonnes
+            }
+            append_log_entry(gspread_client, entry_data)
+            print(f"Daily Inventory Log completed - Entry #{entry_id} added for {date_components['date']}")
 
     except DailyLogError as e:
         print(f"Daily Log Error: {str(e)}")
