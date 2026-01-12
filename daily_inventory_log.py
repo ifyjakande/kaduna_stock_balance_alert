@@ -280,7 +280,7 @@ def update_log_entry(gspread_client, row_number, entry_data):
         ]
 
         def _update_row():
-            worksheet.update(values=[row], range_name=f'A{row_number}:G{row_number}')
+            worksheet.update([row], f'A{row_number}:G{row_number}')
 
         robust_api_call(_update_row)
         return True
@@ -330,24 +330,24 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                 # Clear and set up fresh
                 worksheet.clear()
                 # Row 1: Title
-                worksheet.update(values=[['PULLUS PURCHASE - Daily Inventory Log']], range_name='A1')
+                worksheet.update([['PULLUS PURCHASE - Daily Inventory Log']], 'A1')
                 # Row 2: Description
-                worksheet.update(values=[['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], range_name='A2')
+                worksheet.update([['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], 'A2')
                 # Row 3: Headers
                 headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
                           'Inventory Level (tonnes)', 'Below 10 Tonnes']
-                worksheet.update(values=[headers], range_name='A3:G3')
+                worksheet.update([headers], 'A3:G3')
         except gspread.exceptions.WorksheetNotFound:
             needs_formatting = True
             worksheet = spreadsheet.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
             # Row 1: Title
-            worksheet.update(values=[['PULLUS PURCHASE - Daily Inventory Log']], range_name='A1')
+            worksheet.update([['PULLUS PURCHASE - Daily Inventory Log']], 'A1')
             # Row 2: Description
-            worksheet.update(values=[['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], range_name='A2')
+            worksheet.update([['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], 'A2')
             # Row 3: Headers
             headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
                       'Inventory Level (tonnes)', 'Below 10 Tonnes']
-            worksheet.update(values=[headers], range_name='A3:G3')
+            worksheet.update([headers], 'A3:G3')
 
         # Only apply formatting if sheet was just created or needs initialization
         if needs_formatting:
