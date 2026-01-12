@@ -1,0 +1,41 @@
+name: Daily Inventory Log
+
+on:
+  schedule:
+    - cron: '30 22 * * *'  # 11:30 PM WAT = 22:30 UTC
+  workflow_dispatch:  # Allows manual triggering for testing
+
+permissions:
+  contents: read
+
+jobs:
+  log-inventory:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create service account credentials file
+      run: |
+        echo '${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}' > service-account.json
+      env:
+        ACTIONS_STEP_DEBUG: false
+
+    - name: Run Daily Inventory Log
+      env:
+        SPECIFICATION_SHEET_ID: ${{ secrets.SPECIFICATION_SHEET_ID }}
+        ACTIONS_STEP_DEBUG: false
+      run: |
+        echo "Starting Daily Inventory Log..."
+        python daily_inventory_log.py
+        echo "Daily Inventory Log completed"
