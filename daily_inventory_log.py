@@ -22,7 +22,7 @@ SERVICE_ACCOUNT_FILE = 'service-account.json'
 # Balance sheet configuration
 STOCK_SHEET_NAME = 'Balance'
 STOCK_RANGE = 'A1:EX5'
-LOG_SHEET_NAME = 'Daily_Log'
+LOG_SHEET_NAME = 'Daily Inventory Log'
 
 # Lagos timezone (WAT = UTC+1)
 WAT_TZ = pytz.timezone('Africa/Lagos')
@@ -267,12 +267,14 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
     """Ensure the log sheet exists with proper headers and formatting matching the template."""
     try:
         spreadsheet = gspread_client.open_by_key(DAILY_LOG_SPREADSHEET_ID)
+        needs_formatting = False
 
         try:
             worksheet = spreadsheet.worksheet(LOG_SHEET_NAME)
             first_row = worksheet.row_values(1)
             # Check if sheet needs initialization (row 1 should have title)
             if not first_row or 'PULLUS PURCHASE' not in str(first_row[0]):
+                needs_formatting = True
                 # Clear and set up fresh
                 worksheet.clear()
                 # Row 1: Title
@@ -283,7 +285,10 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                 headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
                           'Inventory Level (tonnes)', 'Below 10 Tonnes']
                 worksheet.update('A3:G3', [headers])
+            else:
+                print("Sheet already formatted, skipping formatting step")
         except gspread.exceptions.WorksheetNotFound:
+            needs_formatting = True
             worksheet = spreadsheet.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
             # Row 1: Title
             worksheet.update('A1', 'PULLUS PURCHASE - Daily Inventory Log')
@@ -294,157 +299,159 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                       'Inventory Level (tonnes)', 'Below 10 Tonnes']
             worksheet.update('A3:G3', [headers])
 
-        sheet_id = worksheet.id
-        requests = [
-            # Merge cells for title row (A1:G1)
-            {
-                'mergeCells': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'startRowIndex': 0,
-                        'endRowIndex': 1,
-                        'startColumnIndex': 0,
-                        'endColumnIndex': 7
-                    },
-                    'mergeType': 'MERGE_ALL'
+        # Only apply formatting if sheet was just created or needs initialization
+        if needs_formatting:
+            sheet_id = worksheet.id
+            requests = [
+                # Merge cells for title row (A1:G1)
+                {
+                    'mergeCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 0,
+                            'endRowIndex': 1,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 7
+                        },
+                        'mergeType': 'MERGE_ALL'
+                    }
+                },
+                # Format title row (Row 1) - Blue background #2E5494, white text
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 0,
+                            'endRowIndex': 1,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 7
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': HEADER_BG_COLOR,
+                                'textFormat': {
+                                    'foregroundColor': HEADER_TEXT_COLOR,
+                                    'bold': True,
+                                    'fontSize': 14
+                                },
+                                'horizontalAlignment': 'CENTER',
+                                'verticalAlignment': 'MIDDLE'
+                            }
+                        },
+                        'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
+                    }
+                },
+                # Merge cells for description row (A2:G2)
+                {
+                    'mergeCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 1,
+                            'endRowIndex': 2,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 7
+                        },
+                        'mergeType': 'MERGE_ALL'
+                    }
+                },
+                # Format description row (Row 2) - Gray italic text
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 1,
+                            'endRowIndex': 2,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 7
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'textFormat': {
+                                    'foregroundColor': {'red': 0.4, 'green': 0.4, 'blue': 0.4},
+                                    'italic': True,
+                                    'fontSize': 10
+                                },
+                                'horizontalAlignment': 'CENTER'
+                            }
+                        },
+                        'fields': 'userEnteredFormat(textFormat,horizontalAlignment)'
+                    }
+                },
+                # Format header row (Row 3) - Blue background #2E5494, white bold text
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 2,
+                            'endRowIndex': 3,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 7
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': HEADER_BG_COLOR,
+                                'textFormat': {
+                                    'foregroundColor': HEADER_TEXT_COLOR,
+                                    'bold': True,
+                                    'fontSize': 11
+                                },
+                                'horizontalAlignment': 'CENTER',
+                                'verticalAlignment': 'MIDDLE'
+                            }
+                        },
+                        'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
+                    }
+                },
+                # Freeze first 3 rows
+                {
+                    'updateSheetProperties': {
+                        'properties': {
+                            'sheetId': sheet_id,
+                            'gridProperties': {'frozenRowCount': 3}
+                        },
+                        'fields': 'gridProperties.frozenRowCount'
+                    }
+                },
+                # Set column widths
+                {
+                    'updateDimensionProperties': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'dimension': 'COLUMNS',
+                            'startIndex': 0,
+                            'endIndex': 7
+                        },
+                        'properties': {
+                            'pixelSize': 130
+                        },
+                        'fields': 'pixelSize'
+                    }
+                },
+                # Set row height for title row
+                {
+                    'updateDimensionProperties': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'dimension': 'ROWS',
+                            'startIndex': 0,
+                            'endIndex': 1
+                        },
+                        'properties': {
+                            'pixelSize': 40
+                        },
+                        'fields': 'pixelSize'
+                    }
                 }
-            },
-            # Format title row (Row 1) - Blue background #2E5494, white text
-            {
-                'repeatCell': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'startRowIndex': 0,
-                        'endRowIndex': 1,
-                        'startColumnIndex': 0,
-                        'endColumnIndex': 7
-                    },
-                    'cell': {
-                        'userEnteredFormat': {
-                            'backgroundColor': HEADER_BG_COLOR,
-                            'textFormat': {
-                                'foregroundColor': HEADER_TEXT_COLOR,
-                                'bold': True,
-                                'fontSize': 14
-                            },
-                            'horizontalAlignment': 'CENTER',
-                            'verticalAlignment': 'MIDDLE'
-                        }
-                    },
-                    'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
-                }
-            },
-            # Merge cells for description row (A2:G2)
-            {
-                'mergeCells': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': 2,
-                        'startColumnIndex': 0,
-                        'endColumnIndex': 7
-                    },
-                    'mergeType': 'MERGE_ALL'
-                }
-            },
-            # Format description row (Row 2) - Gray italic text
-            {
-                'repeatCell': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'startRowIndex': 1,
-                        'endRowIndex': 2,
-                        'startColumnIndex': 0,
-                        'endColumnIndex': 7
-                    },
-                    'cell': {
-                        'userEnteredFormat': {
-                            'textFormat': {
-                                'foregroundColor': {'red': 0.4, 'green': 0.4, 'blue': 0.4},
-                                'italic': True,
-                                'fontSize': 10
-                            },
-                            'horizontalAlignment': 'CENTER'
-                        }
-                    },
-                    'fields': 'userEnteredFormat(textFormat,horizontalAlignment)'
-                }
-            },
-            # Format header row (Row 3) - Blue background #2E5494, white bold text
-            {
-                'repeatCell': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'startRowIndex': 2,
-                        'endRowIndex': 3,
-                        'startColumnIndex': 0,
-                        'endColumnIndex': 7
-                    },
-                    'cell': {
-                        'userEnteredFormat': {
-                            'backgroundColor': HEADER_BG_COLOR,
-                            'textFormat': {
-                                'foregroundColor': HEADER_TEXT_COLOR,
-                                'bold': True,
-                                'fontSize': 11
-                            },
-                            'horizontalAlignment': 'CENTER',
-                            'verticalAlignment': 'MIDDLE'
-                        }
-                    },
-                    'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
-                }
-            },
-            # Freeze first 3 rows
-            {
-                'updateSheetProperties': {
-                    'properties': {
-                        'sheetId': sheet_id,
-                        'gridProperties': {'frozenRowCount': 3}
-                    },
-                    'fields': 'gridProperties.frozenRowCount'
-                }
-            },
-            # Set column widths
-            {
-                'updateDimensionProperties': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'dimension': 'COLUMNS',
-                        'startIndex': 0,
-                        'endIndex': 7
-                    },
-                    'properties': {
-                        'pixelSize': 130
-                    },
-                    'fields': 'pixelSize'
-                }
-            },
-            # Set row height for title row
-            {
-                'updateDimensionProperties': {
-                    'range': {
-                        'sheetId': sheet_id,
-                        'dimension': 'ROWS',
-                        'startIndex': 0,
-                        'endIndex': 1
-                    },
-                    'properties': {
-                        'pixelSize': 40
-                    },
-                    'fields': 'pixelSize'
-                }
-            }
-        ]
+            ]
 
-        def _format_sheet():
-            sheets_service.spreadsheets().batchUpdate(
-                spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
-                body={'requests': requests}
-            ).execute()
+            def _format_sheet():
+                sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
+                    body={'requests': requests}
+                ).execute()
 
-        robust_api_call(_format_sheet)
-        print("Sheet formatting applied (header: #2E5494 background, #FFFFFF text)")
+            robust_api_call(_format_sheet)
+            print("Sheet formatting applied (header: #2E5494 background, #FFFFFF text)")
 
     except Exception as e:
         print(f"Warning: Could not apply sheet formatting: {str(e)}")
