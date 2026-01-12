@@ -184,7 +184,6 @@ def calculate_whole_chicken_weight_kg(balance_data):
 
 def get_balance_sheet_data(sheets_service):
     """Fetch Balance sheet data from Specification Sheet."""
-    print("Fetching Balance sheet data...")
 
     def _fetch_data():
         result = sheets_service.spreadsheets().values().get(
@@ -256,7 +255,6 @@ def append_log_entry(gspread_client, entry_data):
             worksheet.append_row(row, value_input_option='USER_ENTERED')
 
         robust_api_call(_append_row)
-        print(f"Log entry {entry_data['entry_id']} appended successfully")
         return True
 
     except Exception as e:
@@ -278,26 +276,24 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                 # Clear and set up fresh
                 worksheet.clear()
                 # Row 1: Title
-                worksheet.update('A1', 'PULLUS PURCHASE - Daily Inventory Log')
+                worksheet.update(values=[['PULLUS PURCHASE - Daily Inventory Log']], range_name='A1')
                 # Row 2: Description
-                worksheet.update('A2', 'Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.')
+                worksheet.update(values=[['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], range_name='A2')
                 # Row 3: Headers
                 headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
                           'Inventory Level (tonnes)', 'Below 10 Tonnes']
-                worksheet.update('A3:G3', [headers])
-            else:
-                print("Sheet already formatted, skipping formatting step")
+                worksheet.update(values=[headers], range_name='A3:G3')
         except gspread.exceptions.WorksheetNotFound:
             needs_formatting = True
             worksheet = spreadsheet.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
             # Row 1: Title
-            worksheet.update('A1', 'PULLUS PURCHASE - Daily Inventory Log')
+            worksheet.update(values=[['PULLUS PURCHASE - Daily Inventory Log']], range_name='A1')
             # Row 2: Description
-            worksheet.update('A2', 'Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.')
+            worksheet.update(values=[['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], range_name='A2')
             # Row 3: Headers
             headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
                       'Inventory Level (tonnes)', 'Below 10 Tonnes']
-            worksheet.update('A3:G3', [headers])
+            worksheet.update(values=[headers], range_name='A3:G3')
 
         # Only apply formatting if sheet was just created or needs initialization
         if needs_formatting:
@@ -451,7 +447,6 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                 ).execute()
 
             robust_api_call(_format_sheet)
-            print("Sheet formatting applied (header: #2E5494 background, #FFFFFF text)")
 
     except Exception as e:
         print(f"Warning: Could not apply sheet formatting: {str(e)}")
@@ -460,34 +455,21 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
 def main():
     """Main entry point for Daily Inventory Log."""
     try:
-        print("\n" + "=" * 60)
-        print("Daily Inventory Log - Starting")
-        print("=" * 60)
-
         if not SPECIFICATION_SHEET_ID:
             raise DailyLogError("SPECIFICATION_SHEET_ID environment variable not set")
 
-        print("\nInitializing Google Sheets services...")
         sheets_service, gspread_client = get_services()
-
         ensure_sheet_formatting(gspread_client, sheets_service)
 
         current_time = datetime.now(pytz.UTC).astimezone(WAT_TZ)
         date_components = format_date_components(current_time)
-        print(f"Current time (WAT): {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
         balance_data = get_balance_sheet_data(sheets_service)
-
         total_weight_kg = calculate_whole_chicken_weight_kg(balance_data)
-
         inventory_tonnes = round(total_weight_kg / 1000, 2)
-        print(f"Calculated inventory level: {inventory_tonnes} tonnes ({total_weight_kg:.2f} kg)")
-
         below_10_tonnes = "Yes" if inventory_tonnes < 10 else "No"
-        print(f"Below 10 tonnes: {below_10_tonnes}")
 
         entry_id = get_next_entry_id(gspread_client)
-        print(f"Next Entry ID: {entry_id}")
 
         entry_data = {
             'entry_id': entry_id,
@@ -500,20 +482,13 @@ def main():
         }
 
         append_log_entry(gspread_client, entry_data)
-
-        print("\n" + "=" * 60)
-        print("Daily Inventory Log - Completed Successfully")
-        print(f"Entry ID: {entry_id}")
-        print(f"Date: {date_components['date']}")
-        print(f"Inventory: {inventory_tonnes} tonnes")
-        print(f"Below 10 Tonnes: {below_10_tonnes}")
-        print("=" * 60)
+        print(f"Daily Inventory Log completed - Entry #{entry_id} added for {date_components['date']}")
 
     except DailyLogError as e:
-        print(f"\nDaily Log Error: {str(e)}")
+        print(f"Daily Log Error: {str(e)}")
         raise
     except Exception as e:
-        print(f"\nUnexpected error: {str(e)}")
+        print(f"Unexpected error: {str(e)}")
         raise
 
 
