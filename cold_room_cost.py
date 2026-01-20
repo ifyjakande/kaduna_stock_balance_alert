@@ -3,6 +3,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import os
+import json
 import time
 import random
 from typing import Any
@@ -10,6 +11,37 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from datetime import datetime, timedelta, timezone
 
 GOOGLE_SHEETS_SCOPE = ['https://www.googleapis.com/auth/spreadsheets']
+
+# Baseline stock count values (2-Jan-2026)
+# Read from environment variables (GitHub secrets) or fall back to local config
+def load_baseline_config():
+    """Load baseline values from env vars or local config file."""
+    baseline = {
+        'wc_qty': os.environ.get('BASELINE_WC_QTY'),
+        'wc_weight': os.environ.get('BASELINE_WC_WEIGHT'),
+        'gizzard_weight': os.environ.get('BASELINE_GIZZARD_WEIGHT')
+    }
+
+    # If env vars not set, try to load from local config file
+    if not all(baseline.values()):
+        config_file = os.path.join(os.path.dirname(__file__), 'baseline_config.json')
+        if os.path.exists(config_file):
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                baseline['wc_qty'] = baseline['wc_qty'] or config.get('BASELINE_WC_QTY')
+                baseline['wc_weight'] = baseline['wc_weight'] or config.get('BASELINE_WC_WEIGHT')
+                baseline['gizzard_weight'] = baseline['gizzard_weight'] or config.get('BASELINE_GIZZARD_WEIGHT')
+
+    return {
+        'wc_qty': float(baseline['wc_qty']) if baseline['wc_qty'] else 0,
+        'wc_weight': float(baseline['wc_weight']) if baseline['wc_weight'] else 0,
+        'gizzard_weight': float(baseline['gizzard_weight']) if baseline['gizzard_weight'] else 0
+    }
+
+BASELINE = load_baseline_config()
+BASELINE_WC_QTY = BASELINE['wc_qty']
+BASELINE_WC_WEIGHT = BASELINE['wc_weight']
+BASELINE_GIZZARD_WEIGHT = BASELINE['gizzard_weight']
 
 class DataProcessingError(Exception):
     """Custom exception for data processing errors"""
@@ -120,23 +152,28 @@ def create_whole_chicken_report(df: pd.DataFrame) -> pd.DataFrame:
         report_df['INFLOW WEIGHT'] = pd.to_numeric(df['total_whole_chicken_inflow_weight'], errors='coerce').fillna(0).abs()
         report_df['TOTAL RELEASE'] = pd.to_numeric(df['total_whole_chicken_release_quantity'], errors='coerce').fillna(0).abs()
         report_df['RELEASE WEIGHT'] = pd.to_numeric(df['total_whole_chicken_release_weight'], errors='coerce').fillna(0).abs()
-        report_df['BALANCE'] = pd.to_numeric(df['whole_chicken_quantity_stock_balance'], errors='coerce').fillna(0).abs()
-        report_df['WEIGHT BALANCE'] = pd.to_numeric(df['whole_chicken_weight_stock_balance'], errors='coerce').fillna(0).abs()
+        # Add baseline stock (2-Jan-2026 stock count) to balance columns
+        report_df['BALANCE'] = pd.to_numeric(df['whole_chicken_quantity_stock_balance'], errors='coerce').fillna(0).abs() + BASELINE_WC_QTY
+        report_df['WEIGHT BALANCE'] = pd.to_numeric(df['whole_chicken_weight_stock_balance'], errors='coerce').fillna(0).abs() + BASELINE_WC_WEIGHT
 
         # Calculate BIRD STORED = current inflow + previous month balance (with absolute value)
+        # For first month, add baseline since there's no previous ETL balance
         report_df['BIRD STORED'] = 0.0
         for i in range(len(report_df)):
             if i == 0:
-                report_df.iloc[i, report_df.columns.get_loc('BIRD STORED')] = abs(report_df.iloc[i]['TOTAL INFLOW'])
+                # First month: include baseline stock from 2-Jan-2026 stock count
+                report_df.iloc[i, report_df.columns.get_loc('BIRD STORED')] = abs(report_df.iloc[i]['TOTAL INFLOW'] + BASELINE_WC_QTY)
             else:
                 report_df.iloc[i, report_df.columns.get_loc('BIRD STORED')] = \
                     abs(report_df.iloc[i]['TOTAL INFLOW'] + report_df.iloc[i-1]['BALANCE'])
 
         # Calculate WEIGHT STORED = current inflow weight + previous month weight balance (with absolute value)
+        # For first month, add baseline since there's no previous ETL balance
         report_df['WEIGHT STORED'] = 0.0
         for i in range(len(report_df)):
             if i == 0:
-                report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = abs(report_df.iloc[i]['INFLOW WEIGHT'])
+                # First month: include baseline stock from 2-Jan-2026 stock count
+                report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = abs(report_df.iloc[i]['INFLOW WEIGHT'] + BASELINE_WC_WEIGHT)
             else:
                 report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = \
                     abs(report_df.iloc[i]['INFLOW WEIGHT'] + report_df.iloc[i-1]['WEIGHT BALANCE'])
@@ -167,14 +204,16 @@ def create_combined_report(df: pd.DataFrame) -> pd.DataFrame:
         report_df['MONTH'] = df['year_month']
 
         # Get chicken columns (convert to numeric and apply absolute value)
+        # Add baseline stock (2-Jan-2026 stock count) to balance
         chicken_inflow = pd.to_numeric(df['total_whole_chicken_inflow_weight'], errors='coerce').fillna(0).abs()
         chicken_release = pd.to_numeric(df['total_whole_chicken_release_weight'], errors='coerce').fillna(0).abs()
-        chicken_balance = pd.to_numeric(df['whole_chicken_weight_stock_balance'], errors='coerce').fillna(0).abs()
+        chicken_balance = pd.to_numeric(df['whole_chicken_weight_stock_balance'], errors='coerce').fillna(0).abs() + BASELINE_WC_WEIGHT
 
         # Get gizzard columns (convert to numeric and apply absolute value)
+        # Add baseline stock (2-Jan-2026 stock count) to balance
         gizzard_inflow = pd.to_numeric(df['total_gizzard_inflow_weight'], errors='coerce').fillna(0).abs()
         gizzard_release = pd.to_numeric(df['total_gizzard_release_weight'], errors='coerce').fillna(0).abs()
-        gizzard_balance = pd.to_numeric(df['gizzard_weight_stock_balance'], errors='coerce').fillna(0).abs()
+        gizzard_balance = pd.to_numeric(df['gizzard_weight_stock_balance'], errors='coerce').fillna(0).abs() + BASELINE_GIZZARD_WEIGHT
 
         # Sum chicken and gizzard weights
         report_df['INFLOW WEIGHT'] = (chicken_inflow + gizzard_inflow).abs()
@@ -182,10 +221,13 @@ def create_combined_report(df: pd.DataFrame) -> pd.DataFrame:
         report_df['WEIGHT BALANCE'] = (chicken_balance + gizzard_balance).abs()
 
         # Calculate WEIGHT STORED = current inflow weight + previous month weight balance (with absolute value)
+        # For first month, add baseline since there's no previous ETL balance
         report_df['WEIGHT STORED'] = 0.0
+        combined_baseline_weight = BASELINE_WC_WEIGHT + BASELINE_GIZZARD_WEIGHT
         for i in range(len(report_df)):
             if i == 0:
-                report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = abs(report_df.iloc[i]['INFLOW WEIGHT'])
+                # First month: include baseline stock from 2-Jan-2026 stock count
+                report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = abs(report_df.iloc[i]['INFLOW WEIGHT'] + combined_baseline_weight)
             else:
                 report_df.iloc[i, report_df.columns.get_loc('WEIGHT STORED')] = \
                     abs(report_df.iloc[i]['INFLOW WEIGHT'] + report_df.iloc[i-1]['WEIGHT BALANCE'])
@@ -1111,6 +1153,12 @@ def main():
         print("\n" + "="*60)
         print("Starting Cold Room Cost Analysis")
         print("="*60)
+
+        # Check baseline values (don't print actual values for security)
+        if BASELINE_WC_QTY > 0 or BASELINE_WC_WEIGHT > 0 or BASELINE_GIZZARD_WEIGHT > 0:
+            print("\nBaseline stock values loaded successfully")
+        else:
+            print("\nWarning: No baseline stock values configured")
 
         # Get spreadsheet IDs from environment
         etl_spreadsheet_id = os.getenv('INVENTORY_ETL_SPREADSHEET_ID')
