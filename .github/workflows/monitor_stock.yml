@@ -78,6 +78,9 @@ jobs:
       env:
         INVENTORY_ETL_SPREADSHEET_ID: ${{ secrets.INVENTORY_ETL_SPREADSHEET_ID }}
         COLD_ROOM_ANALYSIS_SPREADSHEET_ID: ${{ secrets.COLD_ROOM_ANALYSIS_SPREADSHEET_ID }}
+        BASELINE_WC_QTY: ${{ secrets.BASELINE_WC_QTY }}
+        BASELINE_WC_WEIGHT: ${{ secrets.BASELINE_WC_WEIGHT }}
+        BASELINE_GIZZARD_WEIGHT: ${{ secrets.BASELINE_GIZZARD_WEIGHT }}
         ACTIONS_STEP_DEBUG: false
       run: |
         echo "Starting cold room cost analysis..."
