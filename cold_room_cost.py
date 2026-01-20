@@ -1145,8 +1145,8 @@ def main():
 
         # Upload reports with their types
         upload_tasks = [
-            (chicken_report, 'whole_chicken_report', 'whole_chicken'),
-            (combined_report, 'combined_report', 'combined')
+            (chicken_report, 'whole_chicken_report_2026', 'whole_chicken'),
+            (combined_report, 'combined_report_2026', 'combined')
         ]
 
         success = True
