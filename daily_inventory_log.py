@@ -47,10 +47,8 @@ def is_rate_limit_error(exception):
     """Check if the exception is a rate limit error."""
     if isinstance(exception, HttpError):
         return exception.resp.status in [429, 500, 502, 503]
-    if isinstance(exception, Exception):
-        error_str = str(exception).lower()
-        return any(term in error_str for term in ['quota', 'rate limit', 'too many requests', '429'])
-    return False
+    error_str = str(exception).lower()
+    return any(term in error_str for term in ['quota', 'rate limit', 'too many requests', '429'])
 
 
 @retry(
@@ -535,7 +533,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
             ).execute()
 
             sheet_id = worksheet.id
-            requests = [
+            format_requests = [
                 # Merge cells for title row (A1:G1)
                 {
                     'mergeCells': {
@@ -674,7 +672,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
             def _format_sheet():
                 sheets_service.spreadsheets().batchUpdate(
                     spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
-                    body={'requests': requests}
+                    body={'requests': format_requests}
                 ).execute()
 
             robust_api_call(_format_sheet)
