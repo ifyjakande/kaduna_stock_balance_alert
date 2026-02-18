@@ -352,19 +352,6 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
 
             sheet_id = worksheet.id
             requests = [
-                # Merge cells for title row (A1:G1)
-                {
-                    'mergeCells': {
-                        'range': {
-                            'sheetId': sheet_id,
-                            'startRowIndex': 0,
-                            'endRowIndex': 1,
-                            'startColumnIndex': 0,
-                            'endColumnIndex': 7
-                        },
-                        'mergeType': 'MERGE_ALL'
-                    }
-                },
                 # Format title row (Row 1) - Blue background #2E5494, white text
                 {
                     'repeatCell': {
@@ -388,19 +375,6 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                             }
                         },
                         'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
-                    }
-                },
-                # Merge cells for description row (A2:G2)
-                {
-                    'mergeCells': {
-                        'range': {
-                            'sheetId': sheet_id,
-                            'startRowIndex': 1,
-                            'endRowIndex': 2,
-                            'startColumnIndex': 0,
-                            'endColumnIndex': 7
-                        },
-                        'mergeType': 'MERGE_ALL'
                     }
                 },
                 # Format description row (Row 2) - Gray italic text
