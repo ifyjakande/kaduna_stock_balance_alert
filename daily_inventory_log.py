@@ -320,34 +320,28 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
     try:
         spreadsheet = gspread_client.open_by_key(DAILY_LOG_SPREADSHEET_ID)
         needs_formatting = False
+        headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
+                  'Inventory Level (tonnes)', 'Below 10 Tonnes']
 
         try:
             worksheet = spreadsheet.worksheet(LOG_SHEET_NAME)
-            first_row = worksheet.row_values(1)
-            # Check if sheet needs initialization (row 1 should have title)
-            if not first_row or 'PULLUS PURCHASE' not in str(first_row[0]):
-                needs_formatting = True
-                # Clear and set up fresh
-                worksheet.clear()
-                # Row 1: Title
-                worksheet.update([['PULLUS PURCHASE - Daily Inventory Log']], 'A1')
-                # Row 2: Description
-                worksheet.update([['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], 'A2')
-                # Row 3: Headers
-                headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
-                          'Inventory Level (tonnes)', 'Below 10 Tonnes']
-                worksheet.update([headers], 'A3:G3')
+            # Check row 3 for headers (reliable check unaffected by merged cells in row 1)
+            header_row = worksheet.row_values(3)
+            if header_row and len(header_row) >= 1 and header_row[0] == 'Entry ID':
+                # Headers are in place, sheet is properly set up
+                return
+            # Headers missing - write title/description/headers to rows 1-3 only
+            # NEVER clear the sheet to avoid destroying accumulated data
+            needs_formatting = True
+            worksheet.update(values=[['PULLUS PURCHASE - Daily Inventory Log']], range_name='A1')
+            worksheet.update(values=[['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], range_name='A2')
+            worksheet.update(values=[headers], range_name='A3:G3')
         except gspread.exceptions.WorksheetNotFound:
             needs_formatting = True
             worksheet = spreadsheet.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
-            # Row 1: Title
-            worksheet.update([['PULLUS PURCHASE - Daily Inventory Log']], 'A1')
-            # Row 2: Description
-            worksheet.update([['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], 'A2')
-            # Row 3: Headers
-            headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
-                      'Inventory Level (tonnes)', 'Below 10 Tonnes']
-            worksheet.update([headers], 'A3:G3')
+            worksheet.update(values=[['PULLUS PURCHASE - Daily Inventory Log']], range_name='A1')
+            worksheet.update(values=[['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], range_name='A2')
+            worksheet.update(values=[headers], range_name='A3:G3')
 
         # Only apply formatting if sheet was just created or needs initialization
         if needs_formatting:
