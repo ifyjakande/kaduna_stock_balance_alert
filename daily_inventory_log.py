@@ -86,7 +86,7 @@ def parse_balance_data(data):
 
     Structure:
     - Row 0 (index 0): Product names (WHOLE CHICKEN - BELOW 1KG, GIZZARD, WINGS, etc.)
-    - Row 1 (index 1): "TOTAL" labels
+    - Row 1 (index 1): "TOTAL" labels (not used in parsing)
     - Row 2 (index 2): Grade names (Grade A, Grade B, Grade C, Grade D)
     - Row 3 (index 3): Balance data (the actual numbers)
     - Row 4 (index 4): Metric names (Qty, Weight(kg), Packs)
