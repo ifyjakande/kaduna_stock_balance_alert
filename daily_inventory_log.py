@@ -280,7 +280,7 @@ def update_log_entry(gspread_client, row_number, entry_data):
         ]
 
         def _update_row():
-            worksheet.update([row], f'A{row_number}:G{row_number}')
+            worksheet.update(values=[row], range_name=f'A{row_number}:G{row_number}')
 
         robust_api_call(_update_row)
         return True
@@ -352,6 +352,19 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
 
             sheet_id = worksheet.id
             requests = [
+                # Merge cells for title row (A1:G1)
+                {
+                    'mergeCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 0,
+                            'endRowIndex': 1,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 7
+                        },
+                        'mergeType': 'MERGE_ALL'
+                    }
+                },
                 # Format title row (Row 1) - Blue background #2E5494, white text
                 {
                     'repeatCell': {
@@ -375,6 +388,19 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                             }
                         },
                         'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
+                    }
+                },
+                # Merge cells for description row (A2:G2)
+                {
+                    'mergeCells': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 1,
+                            'endRowIndex': 2,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': 7
+                        },
+                        'mergeType': 'MERGE_ALL'
                     }
                 },
                 # Format description row (Row 2) - Gray italic text
@@ -435,21 +461,14 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                         'fields': 'gridProperties.frozenRowCount'
                     }
                 },
-                # Set column widths
-                {
-                    'updateDimensionProperties': {
-                        'range': {
-                            'sheetId': sheet_id,
-                            'dimension': 'COLUMNS',
-                            'startIndex': 0,
-                            'endIndex': 7
-                        },
-                        'properties': {
-                            'pixelSize': 130
-                        },
-                        'fields': 'pixelSize'
-                    }
-                },
+                # Set column widths (A=100, B=130, C=80, D=110, E=100, F=190, G=140)
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 1}, 'properties': {'pixelSize': 100}, 'fields': 'pixelSize'}},
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 1, 'endIndex': 2}, 'properties': {'pixelSize': 130}, 'fields': 'pixelSize'}},
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 2, 'endIndex': 3}, 'properties': {'pixelSize': 80}, 'fields': 'pixelSize'}},
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 3, 'endIndex': 4}, 'properties': {'pixelSize': 110}, 'fields': 'pixelSize'}},
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 4, 'endIndex': 5}, 'properties': {'pixelSize': 100}, 'fields': 'pixelSize'}},
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 5, 'endIndex': 6}, 'properties': {'pixelSize': 190}, 'fields': 'pixelSize'}},
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 6, 'endIndex': 7}, 'properties': {'pixelSize': 140}, 'fields': 'pixelSize'}},
                 # Set row height for title row
                 {
                     'updateDimensionProperties': {
