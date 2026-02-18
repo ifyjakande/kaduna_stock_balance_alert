@@ -329,7 +329,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
             worksheet = spreadsheet.worksheet(LOG_SHEET_NAME)
             # Check row 3 for headers (reliable check unaffected by merged cells in row 1)
             header_row = worksheet.row_values(3)
-            if header_row and len(header_row) >= 1 and header_row[0] == 'Entry ID':
+            if header_row and len(header_row) >= len(headers) and header_row[0] == 'Entry ID':
                 return
             # Headers missing - write title/description/headers to rows 1-3 only
             # NEVER clear the sheet to avoid destroying accumulated data
