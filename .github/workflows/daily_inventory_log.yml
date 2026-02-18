@@ -34,6 +34,7 @@ jobs:
     - name: Run Daily Inventory Log
       env:
         SPECIFICATION_SHEET_ID: ${{ secrets.SPECIFICATION_SHEET_ID }}
+        STOCK_THRESHOLDS_WEBHOOK_URL: ${{ secrets.STOCK_THRESHOLDS_WEBHOOK_URL }}
         ACTIONS_STEP_DEBUG: false
       run: |
         echo "Starting Daily Inventory Log..."

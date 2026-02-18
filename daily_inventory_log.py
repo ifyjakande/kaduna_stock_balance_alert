@@ -8,6 +8,7 @@ from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import requests
 import gspread
 import pytz
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -23,6 +24,11 @@ SERVICE_ACCOUNT_FILE = 'service-account.json'
 STOCK_SHEET_NAME = 'Balance'
 STOCK_RANGE = 'A1:EX5'
 LOG_SHEET_NAME = 'Daily Inventory Log'
+
+# Stock threshold alert configuration
+STOCK_THRESHOLDS_WEBHOOK_URL = os.environ.get('STOCK_THRESHOLDS_WEBHOOK_URL')
+LOW_STOCK_THRESHOLD = 10   # tonnes
+HIGH_STOCK_THRESHOLD = 30  # tonnes
 
 # Lagos timezone (WAT = UTC+1)
 WAT_TZ = pytz.timezone('Africa/Lagos')
@@ -261,6 +267,182 @@ def format_date_components(dt):
         'year': dt.strftime('%Y'),
         'month': dt.strftime('%B')
     }
+
+
+def build_low_stock_alert_card(inventory_tonnes, date_str, timestamp):
+    """Build a Google Chat card alert for low stock (below 10 tonnes) - targets PURCHASE team."""
+    deficit = LOW_STOCK_THRESHOLD - inventory_tonnes
+
+    card = {
+        "cardsV2": [{
+            "cardId": "low-stock-threshold-alert",
+            "card": {
+                "header": {
+                    "title": "LOW STOCK ALERT",
+                    "subtitle": f"Kaduna Inventory - {date_str}",
+                    "imageUrl": "https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/error/default/48px.svg",
+                    "imageType": "CIRCLE"
+                },
+                "sections": [
+                    {
+                        "header": "<font color=\"#EA4335\">CRITICAL: Stock Below 10 Tonnes</font>",
+                        "widgets": [
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Current Level:</b> <font color=\"#EA4335\">{inventory_tonnes} tonnes</font>"
+                                }
+                            },
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Threshold:</b> {LOW_STOCK_THRESHOLD} tonnes"
+                                }
+                            },
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Deficit:</b> <font color=\"#EA4335\">{deficit:.2f} tonnes below minimum</font>"
+                                }
+                            },
+                            {"divider": {}},
+                            {
+                                "textParagraph": {
+                                    "text": "<b>PURCHASE TEAM:</b> Immediate restocking required. Current Whole Chicken inventory in Kaduna is critically low."
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "widgets": [
+                            {
+                                "decoratedText": {
+                                    "text": f"<i>Logged: {timestamp}</i>"
+                                }
+                            },
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Location:</b> Kaduna"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }]
+    }
+    return card
+
+
+def build_high_stock_alert_card(inventory_tonnes, date_str, timestamp):
+    """Build a Google Chat card alert for high stock (above 30 tonnes) - targets SALES team."""
+    surplus = inventory_tonnes - HIGH_STOCK_THRESHOLD
+
+    card = {
+        "cardsV2": [{
+            "cardId": "high-stock-threshold-alert",
+            "card": {
+                "header": {
+                    "title": "HIGH STOCK ALERT",
+                    "subtitle": f"Kaduna Inventory - {date_str}",
+                    "imageUrl": "https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/trending_up/default/48px.svg",
+                    "imageType": "CIRCLE"
+                },
+                "sections": [
+                    {
+                        "header": "<font color=\"#FBBC04\">WARNING: Stock Above 30 Tonnes</font>",
+                        "widgets": [
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Current Level:</b> <font color=\"#FBBC04\">{inventory_tonnes} tonnes</font>"
+                                }
+                            },
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Threshold:</b> {HIGH_STOCK_THRESHOLD} tonnes"
+                                }
+                            },
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Surplus:</b> <font color=\"#FBBC04\">{surplus:.2f} tonnes above maximum</font>"
+                                }
+                            },
+                            {"divider": {}},
+                            {
+                                "textParagraph": {
+                                    "text": "<b>SALES TEAM:</b> Increased sales push needed. Kaduna Whole Chicken stock is elevated and should be moved to avoid cold storage costs."
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "widgets": [
+                            {
+                                "decoratedText": {
+                                    "text": f"<i>Logged: {timestamp}</i>"
+                                }
+                            },
+                            {
+                                "decoratedText": {
+                                    "text": f"<b>Location:</b> Kaduna"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }]
+    }
+    return card
+
+
+@retry(
+    retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                   requests.exceptions.Timeout)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=15),
+    before_sleep=lambda retry_state: print(
+        f"Threshold alert webhook failed, retrying in "
+        f"{retry_state.next_action.sleep} seconds... "
+        f"(attempt {retry_state.attempt_number})")
+)
+def send_threshold_alert(webhook_url, card_payload):
+    """Send a threshold alert card to Google Chat via webhook."""
+    response = requests.post(webhook_url, json=card_payload, timeout=10)
+    if not response.ok:
+        print(f"Threshold alert webhook error: {response.status_code} - {response.text[:500]}")
+    response.raise_for_status()
+    return response
+
+
+def check_and_send_threshold_alerts(inventory_tonnes, date_str, timestamp):
+    """Check stock thresholds and send alerts to Google Chat if breached."""
+    if not STOCK_THRESHOLDS_WEBHOOK_URL:
+        print("STOCK_THRESHOLDS_WEBHOOK_URL not set, skipping threshold alerts")
+        return
+
+    alerts_sent = 0
+
+    if inventory_tonnes < LOW_STOCK_THRESHOLD:
+        print(f"LOW STOCK THRESHOLD BREACHED: {inventory_tonnes} tonnes < {LOW_STOCK_THRESHOLD} tonnes")
+        card = build_low_stock_alert_card(inventory_tonnes, date_str, timestamp)
+        try:
+            send_threshold_alert(STOCK_THRESHOLDS_WEBHOOK_URL, card)
+            print("Low stock alert sent successfully to Google Chat")
+            alerts_sent += 1
+        except Exception as e:
+            print(f"Failed to send low stock alert: {str(e)}")
+
+    if inventory_tonnes > HIGH_STOCK_THRESHOLD:
+        print(f"HIGH STOCK THRESHOLD BREACHED: {inventory_tonnes} tonnes > {HIGH_STOCK_THRESHOLD} tonnes")
+        card = build_high_stock_alert_card(inventory_tonnes, date_str, timestamp)
+        try:
+            send_threshold_alert(STOCK_THRESHOLDS_WEBHOOK_URL, card)
+            print("High stock alert sent successfully to Google Chat")
+            alerts_sent += 1
+        except Exception as e:
+            print(f"Failed to send high stock alert: {str(e)}")
+
+    if alerts_sent == 0 and STOCK_THRESHOLDS_WEBHOOK_URL:
+        print(f"Stock level ({inventory_tonnes} tonnes) is within normal range "
+              f"({LOW_STOCK_THRESHOLD}-{HIGH_STOCK_THRESHOLD} tonnes). No alerts needed.")
 
 
 def update_log_entry(gspread_client, row_number, entry_data):
@@ -518,6 +700,9 @@ def main():
         inventory_tonnes = round(total_weight_kg / 1000, 2)
         below_10_tonnes = "Yes" if inventory_tonnes < 10 else "No"
         above_30_tonnes = "Yes" if inventory_tonnes > 30 else "No"
+
+        alert_timestamp = current_time.strftime('%d-%b-%Y %I:%M %p WAT').lstrip('0')
+        check_and_send_threshold_alerts(inventory_tonnes, date_components['date'], alert_timestamp)
 
         # Check if entry for today already exists
         existing_row, existing_entry_id = find_existing_entry_for_date(gspread_client, date_components['date'])
