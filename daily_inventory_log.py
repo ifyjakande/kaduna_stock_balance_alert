@@ -276,11 +276,12 @@ def update_log_entry(gspread_client, row_number, entry_data):
             entry_data['month'],
             entry_data['state'],
             entry_data['inventory_tonnes'],
-            entry_data['below_10_tonnes']
+            entry_data['below_10_tonnes'],
+            entry_data['above_30_tonnes']
         ]
 
         def _update_row():
-            worksheet.update(values=[row], range_name=f'A{row_number}:G{row_number}')
+            worksheet.update(values=[row], range_name=f'A{row_number}:H{row_number}')
 
         robust_api_call(_update_row)
         return True
@@ -302,7 +303,8 @@ def append_log_entry(gspread_client, entry_data):
             entry_data['month'],
             entry_data['state'],
             entry_data['inventory_tonnes'],
-            entry_data['below_10_tonnes']
+            entry_data['below_10_tonnes'],
+            entry_data['above_30_tonnes']
         ]
 
         def _append_row():
@@ -321,7 +323,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
         spreadsheet = gspread_client.open_by_key(DAILY_LOG_SPREADSHEET_ID)
         needs_formatting = False
         headers = ['Entry ID', 'Date', 'Year', 'Month', 'State',
-                  'Inventory Level (tonnes)', 'Below 10 Tonnes']
+                  'Inventory Level (tonnes)', 'Below 10 Tonnes', 'Above 30 Tonnes']
 
         try:
             worksheet = spreadsheet.worksheet(LOG_SHEET_NAME)
@@ -341,11 +343,11 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
             # (gspread's deprecated update() is unreliable with merged cells)
             sheets_service.spreadsheets().values().update(
                 spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
-                range=f"'{LOG_SHEET_NAME}'!A1:G3",
+                range=f"'{LOG_SHEET_NAME}'!A1:H3",
                 valueInputOption='RAW',
                 body={'values': [
-                    ['PULLUS PURCHASE - Daily Inventory Log', '', '', '', '', '', ''],
-                    ['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.', '', '', '', '', '', ''],
+                    ['PULLUS PURCHASE - Daily Inventory Log', '', '', '', '', '', '', ''],
+                    ['Record daily inventory levels. "Below 10 Tonnes" and "Above 30 Tonnes" auto-calculate. Data aggregates to Monthly Scorecards.', '', '', '', '', '', '', ''],
                     headers
                 ]}
             ).execute()
@@ -360,7 +362,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                             'startRowIndex': 0,
                             'endRowIndex': 1,
                             'startColumnIndex': 0,
-                            'endColumnIndex': 7
+                            'endColumnIndex': 8
                         },
                         'mergeType': 'MERGE_ALL'
                     }
@@ -373,7 +375,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                             'startRowIndex': 0,
                             'endRowIndex': 1,
                             'startColumnIndex': 0,
-                            'endColumnIndex': 7
+                            'endColumnIndex': 8
                         },
                         'cell': {
                             'userEnteredFormat': {
@@ -398,7 +400,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                             'startRowIndex': 1,
                             'endRowIndex': 2,
                             'startColumnIndex': 0,
-                            'endColumnIndex': 7
+                            'endColumnIndex': 8
                         },
                         'mergeType': 'MERGE_ALL'
                     }
@@ -411,7 +413,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                             'startRowIndex': 1,
                             'endRowIndex': 2,
                             'startColumnIndex': 0,
-                            'endColumnIndex': 7
+                            'endColumnIndex': 8
                         },
                         'cell': {
                             'userEnteredFormat': {
@@ -434,7 +436,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                             'startRowIndex': 2,
                             'endRowIndex': 3,
                             'startColumnIndex': 0,
-                            'endColumnIndex': 7
+                            'endColumnIndex': 8
                         },
                         'cell': {
                             'userEnteredFormat': {
@@ -469,6 +471,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
                 {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 4, 'endIndex': 5}, 'properties': {'pixelSize': 100}, 'fields': 'pixelSize'}},
                 {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 5, 'endIndex': 6}, 'properties': {'pixelSize': 190}, 'fields': 'pixelSize'}},
                 {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 6, 'endIndex': 7}, 'properties': {'pixelSize': 140}, 'fields': 'pixelSize'}},
+                {'updateDimensionProperties': {'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 7, 'endIndex': 8}, 'properties': {'pixelSize': 150}, 'fields': 'pixelSize'}},
                 # Set row height for title row
                 {
                     'updateDimensionProperties': {
@@ -514,6 +517,7 @@ def main():
         total_weight_kg = calculate_whole_chicken_weight_kg(balance_data)
         inventory_tonnes = round(total_weight_kg / 1000, 2)
         below_10_tonnes = "Yes" if inventory_tonnes < 10 else "No"
+        above_30_tonnes = "Yes" if inventory_tonnes > 30 else "No"
 
         # Check if entry for today already exists
         existing_row, existing_entry_id = find_existing_entry_for_date(gspread_client, date_components['date'])
@@ -527,7 +531,8 @@ def main():
                 'month': date_components['month'],
                 'state': 'Kaduna',
                 'inventory_tonnes': inventory_tonnes,
-                'below_10_tonnes': below_10_tonnes
+                'below_10_tonnes': below_10_tonnes,
+                'above_30_tonnes': above_30_tonnes
             }
             update_log_entry(gspread_client, existing_row, entry_data)
             print(f"Daily Inventory Log completed - Entry #{existing_entry_id} updated for {date_components['date']}")
@@ -541,14 +546,15 @@ def main():
                 'month': date_components['month'],
                 'state': 'Kaduna',
                 'inventory_tonnes': inventory_tonnes,
-                'below_10_tonnes': below_10_tonnes
+                'below_10_tonnes': below_10_tonnes,
+                'above_30_tonnes': above_30_tonnes
             }
             append_log_entry(gspread_client, entry_data)
             print(f"Daily Inventory Log completed - Entry #{entry_id} added for {date_components['date']}")
 
         # Update description row with last updated timestamp
         last_updated = current_time.strftime('%I:%M %p WAT').lstrip('0')
-        description = f'Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards. Last updated: {last_updated}'
+        description = f'Record daily inventory levels. "Below 10 Tonnes" and "Above 30 Tonnes" auto-calculate. Data aggregates to Monthly Scorecards. Last updated: {last_updated}'
         sheets_service.spreadsheets().values().update(
             spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
             range=f"'{LOG_SHEET_NAME}'!A2",
