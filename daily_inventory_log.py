@@ -14,7 +14,7 @@ import pytz
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Constants
-DAILY_LOG_SPREADSHEET_ID = '1lWIJbTCiNFrTYEcBsN1vRS5970qzW-OCsZCejI3HWkg'
+DAILY_LOG_SPREADSHEET_ID = os.environ.get('DAILY_LOG_SPREADSHEET_ID')
 SPECIFICATION_SHEET_ID = os.environ.get('SPECIFICATION_SHEET_ID')
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
