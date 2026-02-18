@@ -328,22 +328,7 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
             # Check row 3 for headers (reliable check unaffected by merged cells in row 1)
             header_row = worksheet.row_values(3)
             if header_row and len(header_row) >= 1 and header_row[0] == 'Entry ID':
-                # Headers are in place - fix title/description in merged cells if needed
-                cell_a1 = worksheet.acell('A1').value
-                if cell_a1 != 'PULLUS PURCHASE - Daily Inventory Log':
-                    # Use raw Sheets API for merged cells (gspread update doesn't work reliably on merges)
-                    sheets_service.spreadsheets().values().update(
-                        spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
-                        range=f"'{LOG_SHEET_NAME}'!A1",
-                        valueInputOption='RAW',
-                        body={'values': [['PULLUS PURCHASE - Daily Inventory Log']]}
-                    ).execute()
-                    sheets_service.spreadsheets().values().update(
-                        spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
-                        range=f"'{LOG_SHEET_NAME}'!A2",
-                        valueInputOption='RAW',
-                        body={'values': [['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']]}
-                    ).execute()
+                # Headers are in place, sheet is properly set up
                 return
             # Headers missing - write title/description/headers to rows 1-3 only
             # NEVER clear the sheet to avoid destroying accumulated data
