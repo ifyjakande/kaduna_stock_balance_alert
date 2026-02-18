@@ -328,7 +328,11 @@ def ensure_sheet_formatting(gspread_client, sheets_service):
             # Check row 3 for headers (reliable check unaffected by merged cells in row 1)
             header_row = worksheet.row_values(3)
             if header_row and len(header_row) >= 1 and header_row[0] == 'Entry ID':
-                # Headers are in place, sheet is properly set up
+                # Headers are in place - fix title/description if needed
+                cell_a1 = worksheet.acell('A1').value
+                if cell_a1 != 'PULLUS PURCHASE - Daily Inventory Log':
+                    worksheet.update(values=[['PULLUS PURCHASE - Daily Inventory Log']], range_name='A1')
+                    worksheet.update(values=[['Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards.']], range_name='A2')
                 return
             # Headers missing - write title/description/headers to rows 1-3 only
             # NEVER clear the sheet to avoid destroying accumulated data
