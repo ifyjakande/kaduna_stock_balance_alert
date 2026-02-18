@@ -546,6 +546,16 @@ def main():
             append_log_entry(gspread_client, entry_data)
             print(f"Daily Inventory Log completed - Entry #{entry_id} added for {date_components['date']}")
 
+        # Update description row with last updated timestamp
+        last_updated = current_time.strftime('%I:%M %p WAT').lstrip('0')
+        description = f'Record daily inventory levels. "Below 10 Tonnes" auto-calculates. Data aggregates to Monthly Scorecards. Last updated: {last_updated}'
+        sheets_service.spreadsheets().values().update(
+            spreadsheetId=DAILY_LOG_SPREADSHEET_ID,
+            range=f"'{LOG_SHEET_NAME}'!A2",
+            valueInputOption='RAW',
+            body={'values': [[description]]}
+        ).execute()
+
     except DailyLogError as e:
         print(f"Daily Log Error: {str(e)}")
         raise
