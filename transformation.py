@@ -115,7 +115,8 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         for column in df_clean.columns:
             df_clean[column] = df_clean[column].astype(str).str.strip().str.lower()
             try:
-                numeric_values = pd.to_numeric(df_clean[column].str.replace(',', ''))
+                cleaned = df_clean[column].str.replace(',', '').str.replace(r'\s+', '', regex=True)
+                numeric_values = pd.to_numeric(cleaned)
                 df_clean[column] = numeric_values
             except (ValueError, TypeError):
                 pass
