@@ -1634,9 +1634,7 @@ def build_gizzard_and_parts_widgets(balance_data):
 
             # Only show grades with actual data
             if packs > 0 or weight > 0:
-                packs_suffix = "pk" if packs == 1 else "pks"
-                packs_text = f"{packs:,.1f}{packs_suffix}"
-                product_lines.append(f"{grade_display}: {packs_text} ({weight:,.1f}kg)")
+                product_lines.append(f"{grade_display}: {weight:,.1f}kg")
 
         # Combine all lines into single widget using textParagraph for proper multi-line rendering
         combined_text = "\n".join(product_lines)
