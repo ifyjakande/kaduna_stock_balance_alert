@@ -643,13 +643,6 @@ def detect_gizzard_difference_changes(previous_gizzard_packs_diff, current_gizza
     try:
         print("\nComparing gizzard difference states...")
 
-        # Check packs difference changes
-        if previous_gizzard_packs_diff is not None and current_gizzard_packs_diff is not None:
-            # Use small tolerance for floating point comparison
-            if abs(previous_gizzard_packs_diff - current_gizzard_packs_diff) >= 0.01:
-                changes.append(('Gizzard Packs Balance Difference', previous_gizzard_packs_diff, current_gizzard_packs_diff))
-                print(f"Change detected in Gizzard Packs Balance Difference")
-
         # Check weight difference changes
         if previous_gizzard_weight_diff is not None and current_gizzard_weight_diff is not None:
             # Use small tolerance for floating point comparison
@@ -1226,9 +1219,6 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                     new_suffix = "pc" if abs(new_val) == 1 else "pcs"
                     # Abbreviate: WC Balance Diff instead of Whole Chicken Balance Difference
                     change_text = f"WC Balance Diff: {old_val:,}{old_suffix}→{new_val:,}{new_suffix}"
-                elif 'Packs' in change_type:
-                    # Gizzard Packs Balance Diff
-                    change_text = f"Gizzard Packs Diff: {old_val:,.1f}pks→{new_val:,.1f}pks"
                 else:
                     # Gizzard Weight Balance Diff
                     change_text = f"Gizzard Weight Diff: {old_val:,.2f}kg→{new_val:,.2f}kg"
@@ -1299,58 +1289,6 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
 
     # Section 3: Gizzard Comparison (Packs and Weight)
     gizzard_widgets = []
-
-    # Packs comparison
-    if gizzard_inventory_packs is not None and current_gizzard_packs > 0:
-        packs_difference = current_gizzard_packs - gizzard_inventory_packs
-
-        gizzard_widgets.append({
-            "decoratedText": {
-                "text": "<b>Packs Comparison:</b>"
-            }
-        })
-
-        gizzard_widgets.append({
-            "decoratedText": {
-                "text": f"Spec Sheet: <b>{current_gizzard_packs:,.1f}pks</b>"
-            }
-        })
-
-        gizzard_widgets.append({
-            "decoratedText": {
-                "text": f"Inventory: <b>{gizzard_inventory_packs:,.1f}pks</b>"
-            }
-        })
-
-        if abs(packs_difference) < 0.01:
-            gizzard_widgets.append({
-                "decoratedText": {
-                    "text": "<font color=\"#0F9D58\">✅ <b>Packs balance matches inventory records</b></font>",
-                    "startIcon": {"knownIcon": "CONFIRMATION_NUMBER_ICON"}
-                }
-            })
-        else:
-            # Color code based on severity
-            abs_diff = abs(packs_difference)
-            if abs_diff > 100:
-                color = "#EA4335"  # Red for high severity (>100 packs)
-                icon = "BOOKMARK"
-            elif abs_diff > 50:
-                color = "#FBBC04"  # Yellow for medium severity (>50 packs)
-                icon = "DESCRIPTION"
-            else:
-                color = "#FF6D00"  # Orange for low severity
-                icon = "DESCRIPTION"
-
-            sign = "+" if packs_difference > 0 else ""
-            gizzard_widgets.append({
-                "decoratedText": {
-                    "text": f"<font color=\"{color}\">⚠️ <b>Diff: {sign}{packs_difference:,.1f}pks</b></font>",
-                    "startIcon": {"knownIcon": icon}
-                }
-            })
-
-        gizzard_widgets.append({"divider": {}})
 
     # Weight comparison
     if gizzard_inventory_weight is not None and current_gizzard_weight > 0:
