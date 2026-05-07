@@ -143,25 +143,22 @@ def save_state_read_failure_alert(failed_files, error_message):
         return False
 
 def commit_encrypted_state_files():
-    """Commit encrypted state files to repository."""
+    """Commit encrypted state files to the encrypted-state branch via worktree."""
     try:
-        # Configure git
         subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'],
-                      cwd=DATA_DIR, check=True)
+                      cwd=ENCRYPTED_STATES_DIR, check=True)
         subprocess.run(['git', 'config', 'user.email', 'github-actions[bot]@users.noreply.github.com'],
-                      cwd=DATA_DIR, check=True)
+                      cwd=ENCRYPTED_STATES_DIR, check=True)
 
-        # Force add encrypted state files (despite being in .gitignore)
-        subprocess.run(['git', 'add', '-f', 'encrypted_states/'], cwd=DATA_DIR, check=True)
+        subprocess.run(['git', 'add', '-A'], cwd=ENCRYPTED_STATES_DIR, check=True)
 
-        # Check if there are changes to commit
         result = subprocess.run(['git', 'diff', '--cached', '--exit-code'],
-                               cwd=DATA_DIR, capture_output=True)
+                               cwd=ENCRYPTED_STATES_DIR, capture_output=True)
 
-        if result.returncode != 0:  # There are changes to commit
+        if result.returncode != 0:
             commit_message = f"Update encrypted state files - Run {os.environ.get('GITHUB_RUN_NUMBER', 'unknown')}"
-            subprocess.run(['git', 'commit', '-m', commit_message], cwd=DATA_DIR, check=True)
-            subprocess.run(['git', 'push'], cwd=DATA_DIR, check=True)
+            subprocess.run(['git', 'commit', '-m', commit_message], cwd=ENCRYPTED_STATES_DIR, check=True)
+            subprocess.run(['git', 'push', 'origin', 'HEAD:encrypted-state'], cwd=ENCRYPTED_STATES_DIR, check=True)
             print("Encrypted state files committed and pushed successfully")
         else:
             print("No changes to encrypted state files - nothing to commit")

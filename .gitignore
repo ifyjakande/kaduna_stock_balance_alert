@@ -1,3 +1,6 @@
+# encrypted state lives on the encrypted-state branch (mounted as a worktree at runtime)
+encrypted_states/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -32,7 +32,13 @@ jobs:
         echo '${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}' > service-account.json
       env:
         ACTIONS_STEP_DEBUG: false
-    
+
+    - name: Set up encrypted state worktree
+      run: |
+        git fetch origin encrypted-state
+        rm -rf encrypted_states
+        git worktree add -B encrypted-state encrypted_states origin/encrypted-state
+
     - name: Run data transformation
       env:
         INVENTORY_SHEET_ID: ${{ secrets.INVENTORY_SHEET_ID }}
