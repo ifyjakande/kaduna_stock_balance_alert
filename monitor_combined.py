@@ -2,6 +2,7 @@ import os
 import json
 import pickle
 import random
+import re
 import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -23,7 +24,7 @@ if not SPECIFICATION_SHEET_ID:
     raise ValueError("SPECIFICATION_SHEET_ID environment variable not set")
     
 STOCK_SHEET_NAME = 'Balance'
-STOCK_RANGE = 'A1:EX5'  # Range covers A-EX columns (154 columns) with 5 rows for multi-row headers
+STOCK_RANGE = 'A1:GZ5'  # Range covers A-GZ columns (208 cols) with 5 rows for multi-row headers; wider than the current ~186 cols so newly added products aren't silently truncated
 
 INVENTORY_SHEET_NAME = 'summary'  # The sheet name from the inventory tracking spreadsheet
 INVENTORY_RANGE = 'A:BZ'  # Get all columns since we're finding them by name (extends beyond Z for 53+ columns)
@@ -951,7 +952,9 @@ def format_change_description(change, include_product=True):
             product_display = ""
 
     # Format grade display with abbreviations
-    grade_clean = grade.replace('(Standard Bird)', '').replace('(Standard Gizzard)', '').replace('(Standard Wings)', '').replace('(Standard Laps)', '').replace('(Standard Breast)', '').replace('(Standard Fillet)', '').replace('(Standard Bones)', '').strip()
+    # Strip any "(Standard <product>)" suffix generically so new products
+    # don't need a code change here
+    grade_clean = re.sub(r'\s*\(Standard [^)]*\)', '', grade).strip()
 
     # Abbreviate grades: Grade A -> GA, Grade B -> GB, etc.
     if grade_clean == 'Grade A':
@@ -1127,6 +1130,14 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                     group = 'Fillet'
                 elif product == 'BONES':
                     group = 'Bones'
+                elif product == 'CUT 4':
+                    group = 'Cut 4'
+                elif product == 'HEAD & LEG':
+                    group = 'Head & Leg'
+                elif product == 'NECK':
+                    group = 'Neck'
+                elif product == 'LIVER':
+                    group = 'Liver'
                 else:
                     group = product.title()
 
@@ -1138,8 +1149,9 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
             max_changes = 50  # Show up to 50 changes total
             changes_shown = 0
 
-            # Order: WC, Gizzard, Wings, Laps, Breast, Fillet, Bones, Others
-            product_order = ['WC', 'Gizzard', 'Wings', 'Laps', 'Breast', 'Fillet', 'Bones']
+            # Order: WC, Gizzard, Wings, Laps, Breast, Fillet, Bones, new parts, Others
+            product_order = ['WC', 'Gizzard', 'Wings', 'Laps', 'Breast', 'Fillet', 'Bones',
+                             'Cut 4', 'Head & Leg', 'Neck', 'Liver']
 
             for product_group in product_order:
                 if product_group not in grouped_changes:
@@ -1499,7 +1511,8 @@ def build_gizzard_and_parts_widgets(balance_data):
     parsed_columns = parse_balance_data(balance_data)
 
     # Products to display (in order)
-    products_order = ['GIZZARD', 'WINGS', 'LAPS', 'BREAST', 'FILLET', 'BONES']
+    products_order = ['GIZZARD', 'WINGS', 'LAPS', 'BREAST', 'FILLET', 'BONES',
+                      'CUT 4', 'HEAD & LEG', 'NECK', 'LIVER']
 
     # First pass: identify which products have data
     products_with_data = []
@@ -1557,12 +1570,7 @@ def build_gizzard_and_parts_widgets(balance_data):
             if not grade_data:
                 continue
 
-            grade_display = (grade_name.replace('(Standard Gizzard)', '')
-                            .replace('(Standard Wings)', '')
-                            .replace('(Standard Laps)', '')
-                            .replace('(Standard Breast)', '')
-                            .replace('(Standard Fillet)', '')
-                            .replace('(Standard Bones)', '').strip())
+            grade_display = re.sub(r'\s*\(Standard [^)]*\)', '', grade_name).strip()
 
             packs = float(grade_data.get('Packs', 0)) if grade_data.get('Packs') else 0
             weight = float(grade_data.get('Weight(kg)', 0)) if grade_data.get('Weight(kg)') else 0
