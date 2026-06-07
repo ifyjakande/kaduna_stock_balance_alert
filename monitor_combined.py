@@ -1138,6 +1138,10 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                     group = 'Neck'
                 elif product == 'LIVER':
                     group = 'Liver'
+                elif product == 'HEAD':
+                    group = 'Head'
+                elif product == 'LEG':
+                    group = 'Leg'
                 else:
                     group = product.title()
 
@@ -1151,7 +1155,7 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
 
             # Order: WC, Gizzard, Wings, Laps, Breast, Fillet, Bones, new parts, Others
             product_order = ['WC', 'Gizzard', 'Wings', 'Laps', 'Breast', 'Fillet', 'Bones',
-                             'Cut 4', 'Head & Leg', 'Neck', 'Liver']
+                             'Cut 4', 'Head & Leg', 'Neck', 'Liver', 'Head', 'Leg']
 
             for product_group in product_order:
                 if product_group not in grouped_changes:
@@ -1201,9 +1205,11 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
                     changes_shown += 1
 
             if len(balance_changes) > max_changes:
+                more_count = len(balance_changes) - max_changes
+                more_suffix = "change" if more_count == 1 else "changes"
                 change_widgets.append({
                     "decoratedText": {
-                        "text": f"<i>...and {len(balance_changes) - max_changes} more changes</i>"
+                        "text": f"<i>...and {more_count} more {more_suffix}</i>"
                     }
                 })
 
@@ -1471,14 +1477,14 @@ def build_whole_chicken_widgets(balance_data):
             # Format qty as bags + pieces (compact format)
             bags = int(qty // 20)
             remaining = int(qty % 20)
+            bags_suffix = "bag" if bags == 1 else "bags"
+            pcs_suffix = "pc" if remaining == 1 else "pcs"
 
             if bags > 0 and remaining > 0:
-                qty_display = f"{bags}bags+{remaining}pcs"
+                qty_display = f"{bags}{bags_suffix}+{remaining}{pcs_suffix}"
             elif bags > 0:
-                bags_suffix = "bag" if bags == 1 else "bags"
                 qty_display = f"{bags}{bags_suffix}"
             else:
-                pcs_suffix = "pc" if remaining == 1 else "pcs"
                 qty_display = f"{remaining}{pcs_suffix}"
 
             grade_lines.append(f"{grade_display}: {qty_display} ({weight_kg:,.1f}kg)")
@@ -1512,7 +1518,7 @@ def build_gizzard_and_parts_widgets(balance_data):
 
     # Products to display (in order)
     products_order = ['GIZZARD', 'WINGS', 'LAPS', 'BREAST', 'FILLET', 'BONES',
-                      'CUT 4', 'HEAD & LEG', 'NECK', 'LIVER']
+                      'CUT 4', 'HEAD & LEG', 'NECK', 'LIVER', 'HEAD', 'LEG']
 
     # First pass: identify which products have data
     products_with_data = []
