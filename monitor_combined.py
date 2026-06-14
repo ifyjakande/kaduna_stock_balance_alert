@@ -27,7 +27,7 @@ STOCK_SHEET_NAME = 'Balance'
 STOCK_RANGE = 'A1:GZ5'  # Range covers A-GZ columns (208 cols) with 5 rows for multi-row headers; wider than the current ~186 cols so newly added products aren't silently truncated
 
 INVENTORY_SHEET_NAME = 'summary'  # The sheet name from the inventory tracking spreadsheet
-INVENTORY_RANGE = 'A:BZ'  # Get all columns since we're finding them by name (extends beyond Z for 53+ columns)
+INVENTORY_RANGE = 'A:ZZ'  # Wide range: transformation.py builds summary columns dynamically, so positions shift run-to-run. 'A:BZ' (78 cols) sometimes truncated the gizzard balance columns (~CA/CB), silently dropping the ETL value and firing phantom gizzard discrepancy alerts. Extra headroom keeps newly added columns from being lost.
 
 # Parts are now included in the Balance sheet (Wings, Laps, Breast, Fillet, Bones)
 # No separate parts sheet needed
@@ -174,6 +174,16 @@ def commit_encrypted_state_files():
 
 class APIError(Exception):
     """Custom exception for API related errors."""
+    pass
+
+class MissingColumnError(Exception):
+    """Raised when a column the reconciliation depends on is missing from the inventory summary sheet.
+
+    This is intentionally fatal. The old behaviour silently fell back to baseline-only values when a
+    column couldn't be found, which produced phantom discrepancies and fired false alerts every run.
+    Failing loudly instead makes the Action go red so a structural break (e.g. a column renamed or
+    pushed out of the fetch range) gets noticed immediately rather than buried in noise.
+    """
     pass
 
 def parse_balance_data(data):
@@ -682,8 +692,7 @@ def get_inventory_balance(service):
             balance_col_index = headers.index('whole_chicken_quantity_stock_balance')
             year_month_col_index = headers.index('year_month')
         except ValueError as e:
-            print(f"Could not find required column in inventory sheet: {str(e)}")
-            return None
+            raise MissingColumnError(f"Required column missing from inventory summary sheet: {str(e)}")
             
         # Get current year-month in YYYY-MM format
         current_date = datetime.now(pytz.UTC).astimezone(pytz.timezone('Africa/Lagos'))
@@ -723,6 +732,8 @@ def get_inventory_balance(service):
                 return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
         # Return baseline if no balance column data
         return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
+    except MissingColumnError:
+        raise
     except Exception as e:
         print(f"Error fetching inventory balance: {str(e)}")
         # Return baseline on error so comparison can still work
@@ -760,8 +771,7 @@ def get_gizzard_inventory_balance(service):
         try:
             year_month_col = headers.index('year_month')
         except ValueError:
-            print("Could not find year_month column in inventory sheet, using baseline")
-            return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
+            raise MissingColumnError("year_month column missing from inventory summary sheet")
 
         # Check for gizzard quantity/packs column
         try:
@@ -775,7 +785,7 @@ def get_gizzard_inventory_balance(service):
             gizzard_weight_col = headers.index('gizzard_weight_stock_balance')
             print("Found gizzard_weight_stock_balance column")
         except ValueError:
-            print("Warning: gizzard_weight_stock_balance column not found")
+            raise MissingColumnError("gizzard_weight_stock_balance column missing from inventory summary sheet")
 
         # Get current year-month in YYYY-MM format
         current_date = datetime.now(pytz.UTC).astimezone(pytz.timezone('Africa/Lagos'))
@@ -827,6 +837,8 @@ def get_gizzard_inventory_balance(service):
 
         return packs_balance, weight_balance
 
+    except MissingColumnError:
+        raise
     except Exception as e:
         print(f"Error fetching gizzard inventory balance: {str(e)}")
         # Return baseline on error so comparison can still work
@@ -1755,6 +1767,11 @@ def main():
         print("Committing encrypted state files to repository...")
         commit_encrypted_state_files()
 
+    except MissingColumnError as e:
+        # Structural break (a column we reconcile on is gone). Fail the run loudly instead of
+        # silently emitting phantom alerts, so the broken pipeline gets noticed right away.
+        print(f"FATAL: {str(e)}")
+        raise
     except APIError as e:
         print(f"API Error: {str(e)}")
         # Don't exit with error to avoid GitHub Actions failure
