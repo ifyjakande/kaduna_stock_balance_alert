@@ -74,12 +74,43 @@ BASELINE_GIZZARD_WEIGHT = BASELINE['gizzard_weight']
 # Each entry: (Balance-sheet product name, ETL summary key, display label).
 # Inventory side reads '<summary_key>_weight_stock_balance' from the summary sheet.
 # These parts have no separate stock-count baseline (opening stock assumed 0).
+# Note: BONES maps to the 'bone' (singular) summary key - the Balance sheet uses the
+# plural but the ETL keys it singular, so the column is 'bone_weight_stock_balance'.
 WEIGHT_RECON_PARTS = [
+    ('WINGS', 'wings', 'Wings'),
+    ('LAPS', 'laps', 'Laps'),
+    ('FILLET', 'fillet', 'Fillet'),
+    ('BONES', 'bone', 'Bones'),
+    ('CUT 4', 'cut_4', 'Cut 4'),
     ('NECK', 'neck', 'Neck'),
     ('LIVER', 'liver', 'Liver'),
     ('HEAD', 'head', 'Head'),
     ('LEG', 'leg', 'Leg'),
 ]
+
+# Combined reconciliation groups: sum spec and inventory across sibling parts so a
+# misclassification between related buckets (e.g. a release logged under HEAD when it
+# belonged to HEAD & LEG) cancels out instead of showing equal-and-opposite per-part
+# discrepancies. Each entry: (display label, [(Balance product, ETL summary key), ...]).
+# Members may include parts not in WEIGHT_RECON_PARTS (e.g. HEAD & LEG); their inventory
+# weights are fetched alongside the individual parts. Rendered as extra rollup rows on
+# top of the individual rows, not a replacement.
+WEIGHT_RECON_GROUPS = [
+    ('Head+Leg', [
+        ('HEAD', 'head'),
+        ('LEG', 'leg'),
+        ('HEAD & LEG', 'head_&_leg'),
+    ]),
+]
+
+def get_recon_inventory_targets():
+    """name -> summary key for every part we need an inventory weight for: the
+    individually reconciled parts plus any extra members referenced only by a group."""
+    targets = {name: key for name, key, _label in WEIGHT_RECON_PARTS}
+    for _label, members in WEIGHT_RECON_GROUPS:
+        for name, key in members:
+            targets.setdefault(name, key)
+    return targets
 
 # Set up data directory for state persistence
 DATA_DIR = os.getenv('GITHUB_WORKSPACE', os.getcwd())
@@ -825,13 +856,15 @@ def get_gizzard_inventory_balance(service):
         return None, None
 
 def get_parts_inventory_weights(service):
-    """Fetch weight stock balance for the reconciled parts (WEIGHT_RECON_PARTS).
+    """Fetch weight stock balance for the reconciled parts (WEIGHT_RECON_PARTS plus any
+    extra members referenced only by a combined group, e.g. HEAD & LEG).
 
     Returns: dict mapping Balance-sheet product name -> weight balance (float),
     or None for any part whose column is missing/unavailable. No baseline is added
     (these parts start from 0 opening stock). Missing columns are skipped, not fatal.
     """
-    results = {name: None for name, _key, _label in WEIGHT_RECON_PARTS}
+    targets = get_recon_inventory_targets()
+    results = {name: None for name in targets}
     try:
         def _fetch_parts_data():
             result = service.spreadsheets().values().get(
@@ -873,7 +906,7 @@ def get_parts_inventory_weights(service):
             current_month_row = sorted_data[0]
             print(f"Using most recent available data from {current_month_row[year_month_col]} for parts weight")
 
-        for name, key, _label in WEIGHT_RECON_PARTS:
+        for name, key in targets.items():
             col_name = f'{key}_weight_stock_balance'
             if col_name not in headers:
                 print(f"{col_name} not found in summary sheet (skipping {name})")
@@ -1262,6 +1295,22 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
         if spec_weight > 0:
             recon_widgets.append(build_reconciliation_row(label, spec_weight, inv_weight, 'kg', 50, 20))
 
+    # Combined groups (weight) - sibling parts summed so a misclassification between
+    # related buckets nets out (see WEIGHT_RECON_GROUPS). Rollup rows on top of the
+    # individual rows above.
+    group_widgets = []
+    for label, members in WEIGHT_RECON_GROUPS:
+        invs = [parts_inventory_weights.get(n) if parts_inventory_weights else None for n, _ in members]
+        if any(v is None for v in invs):
+            continue
+        spec_total = sum(calculate_part_spec_weight(parsed_columns, n) for n, _ in members)
+        inv_total = sum(invs)
+        if spec_total > 0:
+            group_widgets.append(build_reconciliation_row(label, spec_total, inv_total, 'kg', 50, 20))
+    if group_widgets:
+        recon_widgets.append({"decoratedText": {"text": "<i>combined</i>"}})
+        recon_widgets.extend(group_widgets)
+
     if recon_widgets:
         recon_widgets.insert(0, {"decoratedText": {"text": "<i>spec / inventory</i>"}})
         sections.append({
@@ -1553,7 +1602,7 @@ def build_whole_chicken_widgets(balance_data):
     widgets.append({"divider": {}})
     widgets.append({
         "decoratedText": {
-            "text": f"<b>TOTAL: {int(total_qty):,} pieces (≈ {total_weight_kg:,.1f} kg / {total_tonnes:.1f} tonnes)</b>"
+            "text": f"<b>TOTAL: {int(total_qty):,} pcs (≈ {total_weight_kg:,.1f} kg / {total_tonnes:.1f} tonnes)</b>"
         }
     })
 
@@ -1744,7 +1793,7 @@ def main():
         # Get gizzard inventory balance for comparison (returns tuple: packs, weight)
         gizzard_inventory_packs, gizzard_inventory_weight = get_gizzard_inventory_balance(service)
 
-        # Get weight inventory balances for the other reconciled parts (neck, liver, head, leg)
+        # Get weight inventory balances for the reconciled parts (see WEIGHT_RECON_PARTS)
         parts_inventory_weights = get_parts_inventory_weights(service)
 
         # Load previous states
