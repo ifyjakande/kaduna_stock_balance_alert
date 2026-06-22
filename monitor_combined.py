@@ -1602,7 +1602,7 @@ def build_whole_chicken_widgets(balance_data):
     widgets.append({"divider": {}})
     widgets.append({
         "decoratedText": {
-            "text": f"<b>TOTAL: {int(total_qty):,} pcs (≈ {total_weight_kg:,.1f} kg / {total_tonnes:.1f} tonnes)</b>"
+            "text": f"<b>TOTAL: {int(total_qty):,} pcs (≈ {total_weight_kg:,.1f} kg / {total_tonnes:.1f} t)</b>"
         }
     })
 
