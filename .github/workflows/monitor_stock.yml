@@ -73,6 +73,7 @@ jobs:
         BASELINE_WC_WEIGHT: ${{ secrets.BASELINE_WC_WEIGHT }}
         BASELINE_GIZZARD_PACKS: ${{ secrets.BASELINE_GIZZARD_PACKS }}
         BASELINE_GIZZARD_WEIGHT: ${{ secrets.BASELINE_GIZZARD_WEIGHT }}
+        BASELINE_LAPS_WEIGHT: ${{ secrets.BASELINE_LAPS_WEIGHT }}
         ACTIONS_STEP_DEBUG: false
       run: |
         echo "Starting inventory monitoring..."

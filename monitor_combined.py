@@ -43,7 +43,8 @@ def load_baseline_config():
         'wc_qty': os.environ.get('BASELINE_WC_QTY'),
         'wc_weight': os.environ.get('BASELINE_WC_WEIGHT'),
         'gizzard_packs': os.environ.get('BASELINE_GIZZARD_PACKS'),
-        'gizzard_weight': os.environ.get('BASELINE_GIZZARD_WEIGHT')
+        'gizzard_weight': os.environ.get('BASELINE_GIZZARD_WEIGHT'),
+        'laps_weight': os.environ.get('BASELINE_LAPS_WEIGHT')
     }
 
     # If env vars not set, try to load from local config file
@@ -56,12 +57,14 @@ def load_baseline_config():
                 baseline['wc_weight'] = baseline['wc_weight'] or config.get('BASELINE_WC_WEIGHT')
                 baseline['gizzard_packs'] = baseline['gizzard_packs'] or config.get('BASELINE_GIZZARD_PACKS')
                 baseline['gizzard_weight'] = baseline['gizzard_weight'] or config.get('BASELINE_GIZZARD_WEIGHT')
+                baseline['laps_weight'] = baseline['laps_weight'] or config.get('BASELINE_LAPS_WEIGHT')
 
     return {
         'wc_qty': float(baseline['wc_qty']) if baseline['wc_qty'] else 0,
         'wc_weight': float(baseline['wc_weight']) if baseline['wc_weight'] else 0,
         'gizzard_packs': float(baseline['gizzard_packs']) if baseline['gizzard_packs'] else 0,
-        'gizzard_weight': float(baseline['gizzard_weight']) if baseline['gizzard_weight'] else 0
+        'gizzard_weight': float(baseline['gizzard_weight']) if baseline['gizzard_weight'] else 0,
+        'laps_weight': float(baseline['laps_weight']) if baseline['laps_weight'] else 0
     }
 
 BASELINE = load_baseline_config()
@@ -69,11 +72,13 @@ BASELINE_WC_QTY = BASELINE['wc_qty']
 BASELINE_WC_WEIGHT = BASELINE['wc_weight']
 BASELINE_GIZZARD_PACKS = BASELINE['gizzard_packs']
 BASELINE_GIZZARD_WEIGHT = BASELINE['gizzard_weight']
+BASELINE_LAPS_WEIGHT = BASELINE['laps_weight']
 
 # Parts reconciled by weight against the ETL inventory.
 # Each entry: (Balance-sheet product name, ETL summary key, display label).
 # Inventory side reads '<summary_key>_weight_stock_balance' from the summary sheet.
-# These parts have no separate stock-count baseline (opening stock assumed 0).
+# Most parts have no separate stock-count baseline (opening stock assumed 0); the
+# exceptions are listed in PARTS_WEIGHT_BASELINE below (e.g. LAPS).
 # Note: BONES maps to the 'bone' (singular) summary key - the Balance sheet uses the
 # plural but the ETL keys it singular, so the column is 'bone_weight_stock_balance'.
 WEIGHT_RECON_PARTS = [
@@ -111,6 +116,12 @@ def get_recon_inventory_targets():
         for name, key in members:
             targets.setdefault(name, key)
     return targets
+
+# Per-part opening-stock baselines (2-Jan-2026 count) added to the ETL inventory weight,
+# mirroring how WC and gizzard baselines work. Parts not listed here start from 0 opening stock.
+PARTS_WEIGHT_BASELINE = {
+    'LAPS': BASELINE_LAPS_WEIGHT,
+}
 
 # Set up data directory for state persistence
 DATA_DIR = os.getenv('GITHUB_WORKSPACE', os.getcwd())
@@ -860,8 +871,9 @@ def get_parts_inventory_weights(service):
     extra members referenced only by a combined group, e.g. HEAD & LEG).
 
     Returns: dict mapping Balance-sheet product name -> weight balance (float),
-    or None for any part whose column is missing/unavailable. No baseline is added
-    (these parts start from 0 opening stock). Missing columns are skipped, not fatal.
+    or None for any part whose column is missing/unavailable. A per-part opening-stock
+    baseline (PARTS_WEIGHT_BASELINE) is added to the ETL balance where defined, e.g. LAPS;
+    parts not listed there start from 0. Missing columns are skipped, not fatal.
     """
     targets = get_recon_inventory_targets()
     results = {name: None for name in targets}
@@ -914,7 +926,7 @@ def get_parts_inventory_weights(service):
             col_idx = headers.index(col_name)
             if len(current_month_row) > col_idx:
                 try:
-                    results[name] = float(current_month_row[col_idx])
+                    results[name] = float(current_month_row[col_idx]) + PARTS_WEIGHT_BASELINE.get(name, 0)
                 except (ValueError, TypeError):
                     print(f"Invalid {col_name} value in inventory sheet")
         return results
