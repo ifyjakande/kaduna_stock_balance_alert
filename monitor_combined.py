@@ -1276,11 +1276,13 @@ def build_card_alert(balance_changes, balance_data, inventory_balance, gizzard_i
     sections = []
 
     # Section 0: Baseline Reference (Stock Count)
-    if BASELINE_WC_QTY > 0 or BASELINE_GIZZARD_PACKS > 0:
+    if BASELINE_WC_QTY > 0 or BASELINE_GIZZARD_PACKS > 0 or BASELINE_LAPS_WEIGHT > 0:
         baseline_widgets = [
             {"decoratedText": {"text": f"WC: <b>{int(BASELINE_WC_QTY):,}pcs</b> / <b>{BASELINE_WC_WEIGHT:,.2f}kg</b>"}},
             {"decoratedText": {"text": f"Gizzard: <b>{int(BASELINE_GIZZARD_PACKS)}pks</b> / <b>{BASELINE_GIZZARD_WEIGHT:.2f}kg</b>"}}
         ]
+        if BASELINE_LAPS_WEIGHT > 0:
+            baseline_widgets.append({"decoratedText": {"text": f"Laps: <b>{BASELINE_LAPS_WEIGHT:.2f}kg</b>"}})
         sections.append({
             "header": "📦 Baseline (Stock Count)",
             "widgets": baseline_widgets
