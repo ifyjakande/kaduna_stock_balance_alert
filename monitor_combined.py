@@ -687,17 +687,9 @@ def detect_parts_weight_difference_changes(previous_parts_diff, current_parts_di
         print(f"Error detecting parts weight difference changes: {str(e)}")
         return changes
 
-def get_inventory_balance(service):
-    """Fetch and calculate inventory balance from the inflow/release sheet."""
+def get_inventory_balance(data):
+    """Calculate inventory balance from pre-fetched summary sheet data."""
     try:
-        def _fetch_inventory_data():
-            result = service.spreadsheets().values().get(
-                spreadsheetId=INVENTORY_SHEET_ID,
-                range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
-            ).execute()
-            return result.get('values', [])
-        
-        data = robust_api_call(_fetch_inventory_data)
         if not data:
             print("No data found in inventory sheet, using baseline")
             return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
@@ -759,19 +751,11 @@ def get_inventory_balance(service):
         # Return baseline on error so comparison can still work
         return BASELINE_WC_QTY if BASELINE_WC_QTY > 0 else None
 
-def get_gizzard_inventory_balance(service):
-    """Fetch gizzard packs and weight balance from the inventory sheet.
+def get_gizzard_inventory_balance(data):
+    """Extract gizzard packs and weight balance from pre-fetched summary sheet data.
     Returns: Tuple of (packs_balance, weight_balance)
     """
     try:
-        def _fetch_gizzard_data():
-            result = service.spreadsheets().values().get(
-                spreadsheetId=INVENTORY_SHEET_ID,
-                range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
-            ).execute()
-            return result.get('values', [])
-
-        data = robust_api_call(_fetch_gizzard_data)
         if not data:
             print("No data found in inventory sheet for gizzard, using baseline")
             return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
@@ -866,8 +850,8 @@ def get_gizzard_inventory_balance(service):
             return BASELINE_GIZZARD_PACKS, BASELINE_GIZZARD_WEIGHT
         return None, None
 
-def get_parts_inventory_weights(service):
-    """Fetch weight stock balance for the reconciled parts (WEIGHT_RECON_PARTS plus any
+def get_parts_inventory_weights(data):
+    """Extract weight stock balance for the reconciled parts (WEIGHT_RECON_PARTS plus any
     extra members referenced only by a combined group, e.g. HEAD & LEG).
 
     Returns: dict mapping Balance-sheet product name -> weight balance (float),
@@ -878,14 +862,6 @@ def get_parts_inventory_weights(service):
     targets = get_recon_inventory_targets()
     results = {name: None for name in targets}
     try:
-        def _fetch_parts_data():
-            result = service.spreadsheets().values().get(
-                spreadsheetId=INVENTORY_SHEET_ID,
-                range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
-            ).execute()
-            return result.get('values', [])
-
-        data = robust_api_call(_fetch_parts_data)
         if not data or len(data) < 2:
             print("Not enough rows in inventory sheet for parts weight, skipping")
             return results
@@ -1801,14 +1777,28 @@ def main():
         # Get current balance data (includes stock and parts in one sheet)
         balance_data = get_sheet_data(service, STOCK_SHEET_NAME, STOCK_RANGE)
 
+        # Fetch the inventory summary sheet once and share it across the parsers below
+        def _fetch_summary_data():
+            result = service.spreadsheets().values().get(
+                spreadsheetId=INVENTORY_SHEET_ID,
+                range=f'{INVENTORY_SHEET_NAME}!{INVENTORY_RANGE}'
+            ).execute()
+            return result.get('values', [])
+
+        try:
+            summary_data = robust_api_call(_fetch_summary_data)
+        except Exception as e:
+            print(f"Error fetching inventory summary data: {str(e)}")
+            summary_data = None
+
         # Get inventory balance for comparison
-        inventory_balance = get_inventory_balance(service)
+        inventory_balance = get_inventory_balance(summary_data)
 
         # Get gizzard inventory balance for comparison (returns tuple: packs, weight)
-        gizzard_inventory_packs, gizzard_inventory_weight = get_gizzard_inventory_balance(service)
+        gizzard_inventory_packs, gizzard_inventory_weight = get_gizzard_inventory_balance(summary_data)
 
         # Get weight inventory balances for the reconciled parts (see WEIGHT_RECON_PARTS)
-        parts_inventory_weights = get_parts_inventory_weights(service)
+        parts_inventory_weights = get_parts_inventory_weights(summary_data)
 
         # Load previous states
         previous_balance_data = load_previous_state(BALANCE_STATE_FILE)

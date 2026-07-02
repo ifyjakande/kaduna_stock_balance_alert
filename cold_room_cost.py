@@ -261,14 +261,21 @@ def prepare_df_for_upload(df: pd.DataFrame) -> pd.DataFrame:
 
     return df_copy
 
+# Sheet IDs are constant within a run, so cache them to avoid repeated metadata fetches
+_sheet_id_cache = {}
+
 def get_sheet_id(service: Any, spreadsheet_id: str, sheet_name: str) -> int:
-    """Get the sheet ID for a given sheet name"""
+    """Get the sheet ID for a given sheet name (cached per run)"""
+    cache_key = (spreadsheet_id, sheet_name)
+    if cache_key in _sheet_id_cache:
+        return _sheet_id_cache[cache_key]
     try:
         spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
         for sheet in spreadsheet.get('sheets', []):
             if sheet['properties']['title'] == sheet_name:
-                return sheet['properties']['sheetId']
-        # If sheet doesn't exist, return None
+                _sheet_id_cache[cache_key] = sheet['properties']['sheetId']
+                return _sheet_id_cache[cache_key]
+        # If sheet doesn't exist, return None (not cached so a later create is picked up)
         return None
     except Exception as e:
         print(f"Error getting sheet ID: {str(e)}")
@@ -297,7 +304,9 @@ def create_sheet_if_not_exists(service: Any, spreadsheet_id: str, sheet_name: st
             ).execute()
 
         result = robust_sheets_operation(_create_sheet)
-        return result['replies'][0]['addSheet']['properties']['sheetId']
+        new_sheet_id = result['replies'][0]['addSheet']['properties']['sheetId']
+        _sheet_id_cache[(spreadsheet_id, sheet_name)] = new_sheet_id
+        return new_sheet_id
     except Exception as e:
         raise DataProcessingError(f"Failed to create sheet {sheet_name}: {str(e)}")
 
